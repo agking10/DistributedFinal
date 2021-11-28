@@ -19,7 +19,7 @@ static bool connected;
 static uint32_t session_id;
 static RNG generator;
 static sp_time test_timeout;
-std::uniform_int_distribution<uint32_t> rng_dst;  
+std::uniform_int_distribution<uint32_t> rng_dst;
 
 //Spread structs
 static mailbox mbox;
@@ -135,7 +135,18 @@ void handle_keyboard_in(int, int, void*)
             break;
         case 'v':
             break;
+        case 'h':
+            print_menu();
+            break;
+        case 'q':
+            goodbye();
+            break;
+        default:
+            printf("Command not recognized. Type 'h' for list of valid commands.\n");
+            break;
     }
+    printf("User> ");
+    fflush(stdout);
 }
 
 void handle_spread_message(int, int, void*)
@@ -268,4 +279,25 @@ void goodbye()
     SP_disconnect(mbox);
 
     exit(0);
+}
+
+void print_menu()
+{
+    	printf("\n");
+	printf("==========\n");
+	printf("User Menu:\n");
+	printf("----------\n");
+	printf("\n");
+	printf("\tu <username> -- log in as <username>\n");
+	printf("\tc <server number> -- connect to server <server number>\n");
+	printf("\n");
+	printf("\tm -- send an email\n");
+    printf("\tl -- show current user's inbox\n");
+	printf("\tr <i> -- mark the ith message in the inbox as read\n");
+	printf("\td <i> -- delete the ith message in the inbox \n");
+	printf("\tv -- show servers in current component\n");
+	printf("\th -- help menu \n");
+	printf("\n");
+	printf("\tq -- quit\n");
+	fflush(stdout);
 }

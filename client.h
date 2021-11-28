@@ -21,3 +21,4 @@ void leave_current_session();
 void send_email();
 void get_inbox();
 void goodbye();
+void print_menu();

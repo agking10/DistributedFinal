@@ -15,6 +15,7 @@ using RNG = std::mt19937;
 static std::string username;
 //static int uid;
 static std::string connection_group;
+static int connected_server_id;
 static std::string connected_server_inbox;
 static std::string client_inbox;
 static bool logged_in;
@@ -163,13 +164,14 @@ void handle_spread_message(int, int, void*)
     static char mess[MAX_MESS_LEN];
     char sender[MAX_GROUP_NAME];
     char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
-    int num_groups;
+    int n_connected;
     int service_type;
     int16_t mess_type;
+    membership_info  memb_info;
     int endian_mismatch;
     int ret;
 
-    ret = SP_receive(mbox, &service_type, sender, 100, &num_groups,
+    ret = SP_receive(mbox, &service_type, sender, 100, &n_connected,
         target_groups, &mess_type, 
         &endian_mismatch, sizeof(mess), mess);
     
@@ -180,11 +182,54 @@ void handle_spread_message(int, int, void*)
             service_type = DROP_RECV;
             printf("\n========Buffers or Groups too Short=======\n");
             ret = SP_receive( mbox, &service_type, sender, MAX_MEMBERS, 
-                &num_groups, target_groups, 
+                &n_connected, target_groups, 
                 &mess_type, &endian_mismatch, sizeof(mess), mess );
         }
     }
-    
+    if (ret < 0) SP_error(ret);
+
+    if (Is_membership_mess(service_type))
+    {
+        process_membership_message(sender, mess, service_type, memb_info, n_connected);
+    }
+}
+
+void process_membership_message(const char * sender, 
+    const char * mess, int service_type, membership_info memb_info, int n_connected)
+{
+    int ret;
+    if (strcmp(sender, connection_group.c_str()) != 0) return;
+
+    ret = SP_get_memb_info(mess, service_type, &memb_info);
+    if (ret < 0) 
+    {
+        printf("BUG: membership message does not have valid body\n");
+        SP_error( ret );
+        exit( 1 );
+    }
+
+    if (Is_reg_memb_mess(service_type))
+    {
+        if (Is_caused_join_mess(service_type))
+        {
+            if (n_connected == 2)
+            {
+                connection_success();
+            }
+        }
+        else if (Is_caused_leave_mess(service_type))
+        {
+            disconnect();
+            printf("Connection with server has closed. Please connect to a different server.\n");
+        }
+    }
+}
+
+
+void connection_success()
+{
+    connected = true;
+    printf("Successfully connected to server %d.\n", connected_server_id);
 }
 
 void log_in(const char * user)
@@ -218,6 +263,7 @@ void connect_to_server(int server)
     connection_group = "client_" + std::to_string(session_id) + "_connect";
     connected_server_inbox = "server_" + std::to_string(server) + "_in";
     client_inbox = "client_" + std::to_string(session_id) + "_in";
+    connected_server_id = server;
 
     ret = SP_join(mbox, connection_group.c_str());
     if (ret < 0) SP_error(ret);
@@ -302,7 +348,7 @@ void get_inbox()
     msg.seq_num = seq_num++;
     strcpy(msg.username, username.c_str());
 
-    requests[seq_num] = {};
+    std::multiset inbox;
 
     SP_multicast(mbox, AGREED_MESS,
         connected_server_inbox.c_str(),
@@ -310,6 +356,51 @@ void get_inbox()
         sizeof(msg),
         reinterpret_cast<const char*>(&msg)
     );
+
+    bool done = false;
+    while (!done && connected)
+    {
+        read_inbox_message(&done);
+    }
+}
+
+void read_inbox_message(bool * done)
+{
+    static char mess[MAX_MESS_LEN];
+    char sender[MAX_GROUP_NAME];
+    char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
+    int n_connected;
+    int service_type;
+    int16_t mess_type;
+    membership_info  memb_info;
+    int endian_mismatch;
+    int ret;
+
+    ret = SP_receive(mbox, &service_type, sender, 100, &n_connected,
+        target_groups, &mess_type, 
+        &endian_mismatch, sizeof(mess), mess);
+    
+    if (ret < 0)
+    {
+        if ((ret == GROUPS_TOO_SHORT) || (ret == BUFFER_TOO_SHORT))
+        {
+            service_type = DROP_RECV;
+            printf("\n========Buffers or Groups too Short=======\n");
+            ret = SP_receive( mbox, &service_type, sender, MAX_MEMBERS, 
+                &n_connected, target_groups, 
+                &mess_type, &endian_mismatch, sizeof(mess), mess );
+        }
+    }
+    if (ret < 0) SP_error(ret);
+
+    if (Is_regular_mess(service_type))
+    {
+        // Do something with message
+    }
+    else if (Is_membership_mess(service_type))
+    {
+        process_membership_message(sender, mess, service_type, memb_info, n_connected);
+    }
 }
 
 void goodbye()

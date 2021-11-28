@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <stdexcept>
 #include <random>
+#include <unordered_map>
+#include <list>
+#include <set>
 
 using RNG = std::mt19937;
 
@@ -27,6 +30,9 @@ static int seq_num;
 static char user[80];
 static char spread_name[80];
 static char private_group[MAX_GROUP_NAME];
+// Keep track of requests that have not been filled yet
+static std::unordered_map<int, std::list<ServerResponse>> requests;
+static std::multiset<InboxMessage> inbox;
 
 int main(int argc, char * argv[])
 {
@@ -130,10 +136,13 @@ void handle_keyboard_in(int, int, void*)
             );
             break;
         case 'd':
+            //TODO
             break;
         case 'r':
+            //TODO
             break;
         case 'v':
+            //TODO
             break;
         case 'h':
             print_menu();
@@ -151,7 +160,31 @@ void handle_keyboard_in(int, int, void*)
 
 void handle_spread_message(int, int, void*)
 {
-    //TODO
+    static char mess[MAX_MESS_LEN];
+    char sender[MAX_GROUP_NAME];
+    char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
+    int num_groups;
+    int service_type;
+    int16_t mess_type;
+    int endian_mismatch;
+    int ret;
+
+    ret = SP_receive(mbox, &service_type, sender, 100, &num_groups,
+        target_groups, &mess_type, 
+        &endian_mismatch, sizeof(mess), mess);
+    
+    if (ret < 0)
+    {
+        if ((ret == GROUPS_TOO_SHORT) || (ret == BUFFER_TOO_SHORT))
+        {
+            service_type = DROP_RECV;
+            printf("\n========Buffers or Groups too Short=======\n");
+            ret = SP_receive( mbox, &service_type, sender, MAX_MEMBERS, 
+                &num_groups, target_groups, 
+                &mess_type, &endian_mismatch, sizeof(mess), mess );
+        }
+    }
+    
 }
 
 void log_in(const char * user)
@@ -215,6 +248,9 @@ void leave_current_session()
     ret = SP_leave(mbox, client_inbox.c_str());
     if (ret < 0) SP_error(ret);
 
+    // clear request queue
+    requests.clear();
+
     // Generate new session id
     session_id = rng_dst(generator);
 }
@@ -236,7 +272,7 @@ void send_email()
         return;
     }
     printf("Subject: ");
-    if (fgets(msg.subject, SUBJECT_LEN, stdin) == NULL)
+    if (fgets(msg.subject, MAX_SUBJECT, stdin) == NULL)
     {
         printf("Invalid subject\n");
         return;
@@ -249,6 +285,8 @@ void send_email()
     }
     msg.seq_num = seq_num++;
     strcpy(msg.username, username.c_str());
+
+    requests[seq_num] = {};
 
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 
@@ -263,6 +301,8 @@ void get_inbox()
     GetInboxMessage msg;
     msg.seq_num = seq_num++;
     strcpy(msg.username, username.c_str());
+
+    requests[seq_num] = {};
 
     SP_multicast(mbox, AGREED_MESS,
         connected_server_inbox.c_str(),
@@ -283,7 +323,7 @@ void goodbye()
 
 void print_menu()
 {
-    	printf("\n");
+    printf("\n");
 	printf("==========\n");
 	printf("User Menu:\n");
 	printf("----------\n");

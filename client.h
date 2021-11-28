@@ -8,6 +8,8 @@
 #include <iostream>
 #include <random>
 
+#define MAX_MEMBERS 100
+
 void start();
 
 static void handle_keyboard_in(int, int, void*);

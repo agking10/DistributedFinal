@@ -5,7 +5,7 @@
 #include <variant>
 
 #define MAX_USERNAME 30
-#define SUBJECT_LEN 100
+#define MAX_SUBJECT 100
 #define EMAIL_LEN 1000
 #define N_MACHINES 5
 
@@ -22,6 +22,7 @@ enum MessageType
     // Server to client message
 	ACK,
 	INBOX,
+    RESPONSE,
 
     // Server to server messages
 	COMMAND,
@@ -51,7 +52,7 @@ struct MailMessage
     int seq_num;
     char username[MAX_USERNAME];
     char to[MAX_USERNAME];
-    char subject[SUBJECT_LEN];
+    char subject[MAX_SUBJECT];
     char message[EMAIL_LEN];
 };
 
@@ -106,4 +107,32 @@ struct AckMessage
 {
     MessageType type = MessageType::ACK;
     int seq_num;
+};
+
+struct InboxEntry
+{
+    bool read;
+    time_t date_sent;
+    char to[MAX_USERNAME];
+    char from[MAX_USERNAME];
+    char subject[MAX_SUBJECT];
+    char message[MAX_MESS_LEN];
+};
+
+struct InboxMessage
+{
+    MessageType type = MessageType::INBOX;
+    int seq_num;
+    MessageIdentifier id;
+    InboxEntry msg;
+};
+
+struct ServerResponse
+{
+    MessageType type = MessageType::RESPONSE;
+    int seq_num;
+    std::variant<
+        AckMessage,
+        InboxMessage
+    > data;
 };

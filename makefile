@@ -6,11 +6,15 @@ CPPFLAGS = -std=c++17 -I include
 SP_LIBRARY = include/libspread-core.a include/libspread-util.a
 
 CLIENT_OBJS = client_main.o
+SERVER_OBJS = server_main.o
 
-all: client
+all: client server
 
 client: $(CLIENT_OBJS)
 	$(CXX) -o client $(CLIENT_OBJS) -I include -ldl $(SP_LIBRARY)
+
+server: $(SERVER_OBJS)
+	$(CXX) -o server $(SERVER_OBJS) -I include -ldl $(SP_LIBRARY)
 
 clean:
 	rm *.o

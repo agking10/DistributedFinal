@@ -117,6 +117,11 @@ void init()
     } 
 }
 
+void load_state()
+{
+    //TODO: fetch state from file
+}
+
 void process_data_message()
 {
     if (strcmp(sender, server_group.c_str()) == 0)
@@ -137,10 +142,10 @@ void process_data_message()
             case (MessageType::DELETE):
                 process_delete_command();
                 break;
-            case (MessageType::SHOW_INBOX)
+            case (MessageType::SHOW_INBOX):
                 send_inbox_to_client();
                 break;
-            case (MessageType::SHOW_COMPONENT)
+            case (MessageType::SHOW_COMPONENT):
                 send_component_to_client();
                 break;
             default:
@@ -201,6 +206,11 @@ void send_inbox_to_client()
 void send_component_to_client()
 {
     //TODO: send component to sender's group
+}
+
+void process_connection_request()
+{
+    //TODO: create new connection
 }
 
 void synchronize()

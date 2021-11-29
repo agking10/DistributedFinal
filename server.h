@@ -12,7 +12,18 @@
 void init();
 void load_state();
 void write_state();
+void process_data_message();
+void process_membership_message();
 void add_log_entry(int, const UserCommand&);
+void process_backend_message();
+void process_new_email();
+void process_read_command();
+void process_delete_command();
+void send_inbox_to_client();
+void send_component_to_client();
+void process_connection_request();
+void synchronize();
+void end_connection(const std::string&);
 void goodbye();
 
 struct State

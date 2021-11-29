@@ -39,7 +39,17 @@ struct MessageIdentifier
 {
     int index;
     int origin;
+
+    friend bool operator<(const MessageIdentifier& m1, const MessageIdentifier& m2);
 };
+
+bool operator<(const MessageIdentifier& m1, const MessageIdentifier& m2)
+{
+    if (m1.index == m2.index)
+        return m1.origin < m2.origin;
+    else 
+        return m1.index < m2.index;
+}
 
 struct ConnectMessage
 {
@@ -83,7 +93,6 @@ struct GetInboxMessage
 struct UserCommand
 {
     MessageIdentifier id;
-    int uid;
     time_t timestamp;
     std::variant<
         MailMessage, 

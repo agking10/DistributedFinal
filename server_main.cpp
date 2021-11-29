@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_set>
+#include <ctime>
 
 static mailbox mbox;
 static int seq_num;
@@ -25,6 +26,8 @@ static std::unordered_set<int> clients;
 static std::string server_group = "all_servers_group";
 static std::string server_inbox;
 static int server_id;
+
+static std::list<std::shared_ptr<UserCommand>> command_queue[N_MACHINES];
 
 static int n_received;
 
@@ -185,7 +188,80 @@ void process_backend_message()
 
 void process_new_email()
 {
-    //TODO: extract data from email message and send to connected servers
+    std::shared_ptr<UserCommand> mail_command = std::make_shared<UserCommand>();
+
+    mail_command->id.origin = server_id;
+    mail_command->id.index = state.knowledge[server_id][server_id] + 1;
+
+    mail_command->data = *reinterpret_cast<MailMessage*>(mess);
+    mail_command->timestamp = time(nullptr);
+
+    apply_command(mail_command);
+}
+
+void apply_command(std::shared_ptr<UserCommand> command)
+{
+    if (command->id.index != state.knowledge[server_id][command->id.origin] + 1) return;
+
+    state.knowledge[server_id][command->id.origin]++;
+    write_command_to_log(command);
+
+    if (std::holds_alternative<MailMessage>(command->data))
+    {
+        apply_mail_message(command);
+    }
+    else if (std::holds_alternative<ReadMessage>(command->data))
+    {
+        apply_read_message(command);
+    }
+    else if (std::holds_alternative<DeleteMessage>(command->data))
+    {
+        apply_delete_message(command);
+    }
+}
+
+void apply_mail_message(std::shared_ptr<UserCommand> command)
+{
+    const MailMessage& msg = std::get<MailMessage>(command->data);
+
+    if (state.pending_delete.find(command->id) != state.pending_delete.end())
+    {
+        state.deleted.insert(command->id);
+        state.pending_delete.erase(command->id);
+        return;
+    }
+
+    InboxMessage new_mail;
+    strcpy(new_mail.msg.to, msg.to);
+    strcpy(new_mail.msg.from, msg.username);
+    strcpy(new_mail.msg.subject, msg.subject);
+    strcpy(new_mail.msg.message, msg.message);
+    new_mail.msg.date_sent = command->timestamp;
+    new_mail.id = command->id;
+    new_mail.msg.read = false;
+
+    if (state.pending_read.find(command->id) != state.pending_read.end())
+    {
+        new_mail.msg.read = true;
+        state.pending_read.erase(command->id);
+    }
+
+    state.inboxes[std::string(new_mail.msg.to)].push_back(new_mail);
+}
+
+void apply_read_message(std::shared_ptr<UserCommand> command)
+{
+    //TODO
+}
+
+void apply_delete_message(std::shared_ptr<UserCommand> command)
+{
+
+}
+
+void write_command_to_log(std::shared_ptr<UserCommand> command)
+{
+    //TODO
 }
 
 void process_read_command()

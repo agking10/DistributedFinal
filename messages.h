@@ -8,6 +8,7 @@
 #define MAX_SUBJECT 100
 #define EMAIL_LEN 1000
 #define N_MACHINES 5
+#define MAX_MEMBERS 100
 
 enum MessageType
 {

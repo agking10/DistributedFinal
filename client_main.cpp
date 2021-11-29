@@ -31,6 +31,15 @@ static int seq_num;
 static char user[80];
 static char spread_name[80];
 static char private_group[MAX_GROUP_NAME];
+static char mess[MAX_MESS_LEN];
+static char sender[MAX_GROUP_NAME];
+static char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
+static int n_connected;
+static int service_type;
+static int16_t mess_type;
+static membership_info  memb_info;
+static int endian_mismatch;
+
 // Keep track of requests that have not been filled yet
 static std::unordered_map<int, std::list<ServerResponse>> requests;
 static std::multiset<InboxMessage> inbox;
@@ -163,14 +172,7 @@ void handle_keyboard_in(int, int, void*)
 
 void handle_spread_message(int, int, void*)
 {
-    static char mess[MAX_MESS_LEN];
-    char sender[MAX_GROUP_NAME];
-    char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
-    int n_connected;
-    int service_type;
-    int16_t mess_type;
-    membership_info  memb_info;
-    int endian_mismatch;
+    
     int ret;
 
     ret = SP_receive(mbox, &service_type, sender, 100, &n_connected,
@@ -247,7 +249,7 @@ void process_server_response(int16_t mess_type, const char * mess)
     }
     else if (mess_type == MessageType::INBOX)
     {
-        InboxMessage = std::get<InboxMessage>(resp->data);
+        InboxMessage email = std::get<InboxMessage>(resp->data);
         // Format this some way
     }
 }
@@ -374,14 +376,14 @@ void get_inbox()
     msg.seq_num = seq_num++;
     strcpy(msg.username, username.c_str());
 
-    std::multiset inbox;
-
     SP_multicast(mbox, AGREED_MESS,
         connected_server_inbox.c_str(),
         MessageType::SHOW_INBOX,
         sizeof(msg),
         reinterpret_cast<const char*>(&msg)
     );
+
+    inbox.clear();
 
     blocking = true;
     while (blocking && connected)

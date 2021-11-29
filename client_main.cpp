@@ -246,11 +246,12 @@ void process_server_response(int16_t mess_type, const char * mess)
         {
             printf("%s\n", ack.body);
         }
+        blocking = false;
     }
     else if (mess_type == MessageType::INBOX)
     {
         InboxMessage email = std::get<InboxMessage>(resp->data);
-        // Format this some way
+        printf("mail: %s", email.msg.subject);
     }
 }
 
@@ -266,6 +267,7 @@ void log_in(const char * user)
         log_out();
     
     username = std::string(user);
+    logged_in = true;
 }
 
 void log_out()

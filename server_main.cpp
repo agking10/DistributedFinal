@@ -276,7 +276,23 @@ void process_delete_command()
 
 void send_inbox_to_client()
 {
+    GetInboxMessage *msg = reinterpret_cast<GetInboxMessage*>(mess);
+    std::string uname = msg->username;
     //TODO: send user's inbox to sender's group
+    std::string client_name = "client_" + std::to_string(msg->session_id) + "_in";
+    for (const auto& i: state.inboxes[uname]) {
+        ServerResponse res;
+        res.seq_num = msg->seq_num;
+        res.data = i;
+        SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+        MessageType::RESPONSE, sizeof(res), 
+        reinterpret_cast<const char *>(&res));
+    }
+    AckMessage ack;
+    strcpy(ack.body, "done");
+    SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+    MessageType::ACK, sizeof(ack), 
+    reinterpret_cast<const char *>(&ack));   
 }
 
 void send_component_to_client()

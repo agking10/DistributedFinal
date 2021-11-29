@@ -88,6 +88,7 @@ struct GetInboxMessage
     MessageType type = MessageType::SHOW_INBOX;
     int seq_num;
     char username[MAX_USERNAME];
+    int session_id;
 };
 
 struct UserCommand

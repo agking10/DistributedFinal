@@ -34,6 +34,8 @@ static char private_group[MAX_GROUP_NAME];
 // Keep track of requests that have not been filled yet
 static std::unordered_map<int, std::list<ServerResponse>> requests;
 static std::multiset<InboxMessage> inbox;
+static bool blocking;
+static int blocking_id;
 
 int main(int argc, char * argv[])
 {
@@ -188,7 +190,11 @@ void handle_spread_message(int, int, void*)
     }
     if (ret < 0) SP_error(ret);
 
-    if (Is_membership_mess(service_type))
+    if (Is_regular_mess(service_type))
+    {
+        process_server_response(mess_type, mess);
+    }
+    else if (Is_membership_mess(service_type))
     {
         process_membership_message(sender, mess, service_type, memb_info, n_connected);
     }
@@ -225,6 +231,26 @@ void process_membership_message(const char * sender,
     }
 }
 
+void process_server_response(int16_t mess_type, const char * mess)
+{
+    if (!blocking) return;
+
+    const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
+
+    if (mess_type == MessageType::ACK)
+    {
+        AckMessage ack = std::get<AckMessage>(resp->data);
+        if (ack.seq_num == blocking_id)
+        {
+            printf("%s\n", ack.body);
+        }
+    }
+    else if (mess_type == MessageType::INBOX)
+    {
+        InboxMessage = std::get<InboxMessage>(resp->data);
+        // Format this some way
+    }
+}
 
 void connection_success()
 {
@@ -357,50 +383,12 @@ void get_inbox()
         reinterpret_cast<const char*>(&msg)
     );
 
-    bool done = false;
-    while (!done && connected)
+    blocking = true;
+    while (blocking && connected)
     {
-        read_inbox_message(&done);
+        handle_spread_message(0, 0, nullptr);
     }
-}
-
-void read_inbox_message(bool * done)
-{
-    static char mess[MAX_MESS_LEN];
-    char sender[MAX_GROUP_NAME];
-    char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
-    int n_connected;
-    int service_type;
-    int16_t mess_type;
-    membership_info  memb_info;
-    int endian_mismatch;
-    int ret;
-
-    ret = SP_receive(mbox, &service_type, sender, 100, &n_connected,
-        target_groups, &mess_type, 
-        &endian_mismatch, sizeof(mess), mess);
-    
-    if (ret < 0)
-    {
-        if ((ret == GROUPS_TOO_SHORT) || (ret == BUFFER_TOO_SHORT))
-        {
-            service_type = DROP_RECV;
-            printf("\n========Buffers or Groups too Short=======\n");
-            ret = SP_receive( mbox, &service_type, sender, MAX_MEMBERS, 
-                &n_connected, target_groups, 
-                &mess_type, &endian_mismatch, sizeof(mess), mess );
-        }
-    }
-    if (ret < 0) SP_error(ret);
-
-    if (Is_regular_mess(service_type))
-    {
-        // Do something with message
-    }
-    else if (Is_membership_mess(service_type))
-    {
-        process_membership_message(sender, mess, service_type, memb_info, n_connected);
-    }
+    blocking = false;
 }
 
 void goodbye()

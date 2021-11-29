@@ -107,6 +107,7 @@ struct AckMessage
 {
     MessageType type = MessageType::ACK;
     int seq_num;
+    char body[300];
 };
 
 struct InboxEntry

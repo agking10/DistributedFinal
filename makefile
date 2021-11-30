@@ -19,6 +19,7 @@ server: $(SERVER_OBJS)
 clean:
 	rm *.o
 	rm client
+	rm server
 
 %.o:    %.c
 	$(CC) $(CFLAGS) $*.c

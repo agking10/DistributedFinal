@@ -127,12 +127,26 @@ void load_state()
 
 void process_data_message()
 {
-    if (strcmp(sender, server_group.c_str()) == 0)
+    if (message_sent_to_servers())
     {
         process_backend_message();
     }
-    else if (client_connections.find(std::string(sender)) != client_connections.end())
+    else if (message_sent_to_inbox())
     {
+        ClientMessage * msg = reinterpret_cast<ClientMessage*>(mess);
+
+        if (!connection_exists(msg->session_id))
+        {
+            if (mess_type == MessageType::CONNECT)
+            {
+                process_connection_request();
+            }
+            else
+            {
+                //TODO: send ack rejecting message
+            }
+        }
+
         // Respond to existing connections
         switch (mess_type)
         {
@@ -156,19 +170,15 @@ void process_data_message()
                 break;
         }
     }
-    else if (mess_type == MessageType::CONNECT)
-    {
-        process_connection_request();
-    }
 }
 
 void process_membership_message()
 {
     int ret;
     
-    if (!Is_regular_mess(service_type)) return;
+    if (!Is_reg_memb_mess(service_type)) return;
 
-    if (strcmp(sender, server_group.c_str()))
+    if (strcmp(sender, server_group.c_str()) == 0)
     {
         synchronize();
     }
@@ -279,20 +289,21 @@ void send_inbox_to_client()
     GetInboxMessage *msg = reinterpret_cast<GetInboxMessage*>(mess);
     std::string uname = msg->username;
     //TODO: send user's inbox to sender's group
-    std::string client_name = "client_" + std::to_string(msg->session_id) + "_in";
+    std::string client_name = client_inbox_from_id(msg->session_id);
+    ServerResponse res;
+    res.seq_num = msg->seq_num;
     for (const auto& i: state.inboxes[uname]) {
-        ServerResponse res;
-        res.seq_num = msg->seq_num;
         res.data = i;
         SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
-        MessageType::RESPONSE, sizeof(res), 
+        MessageType::INBOX, sizeof(res), 
         reinterpret_cast<const char *>(&res));
     }
     AckMessage ack;
     strcpy(ack.body, "done");
+    res.data = ack;
     SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
-    MessageType::ACK, sizeof(ack), 
-    reinterpret_cast<const char *>(&ack));   
+    MessageType::ACK, sizeof(res), 
+    reinterpret_cast<const char *>(&res));   
 }
 
 void send_component_to_client()
@@ -302,7 +313,10 @@ void send_component_to_client()
 
 void process_connection_request()
 {
-    //TODO: create new connection
+    ConnectMessage * msg = reinterpret_cast<ConnectMessage*>(mess);
+    std::string conn_group = "client_" + std::to_string(msg->session_id) + "_connect";
+    SP_join(mbox, conn_group.c_str());
+    client_connections.insert(conn_group);
 }
 
 void synchronize()
@@ -323,4 +337,30 @@ void goodbye()
     SP_disconnect(mbox);
 
     exit(0);
+}
+
+std::string client_connection_from_id(uint32_t id)
+{
+    return "client_" + std::to_string(id) + "_connect";
+}
+
+std::string client_inbox_from_id(uint32_t id)
+{
+    return "client_" + std::to_string(id) + "_in";
+}
+
+bool message_sent_to_inbox()
+{
+    return strcmp(target_groups[0], server_inbox.c_str()) == 0;
+}
+
+bool message_sent_to_servers()
+{
+    return strcmp(target_groups[0], server_group.c_str()) == 0;
+}
+
+bool connection_exists(uint32_t session_id)
+{
+    return client_connections.find(client_connection_from_id(session_id))
+        != client_connections.end();
 }

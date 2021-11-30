@@ -259,6 +259,8 @@ void connection_success()
 {
     connected = true;
     printf("Successfully connected to server %d.\n", connected_server_id);
+    printf("User> ");
+    fflush(stdout);
 }
 
 void log_in(const char * user)
@@ -376,6 +378,7 @@ void get_inbox()
 {
     GetInboxMessage msg;
     msg.seq_num = seq_num++;
+    msg.session_id = session_id;
     strcpy(msg.username, username.c_str());
 
     SP_multicast(mbox, AGREED_MESS,

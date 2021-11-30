@@ -35,6 +35,12 @@ struct MessageHeader
     MessageType type;
 };
 
+struct ClientMessage
+{
+    MessageType type;
+    uint32_t session_id;
+};
+
 struct MessageIdentifier
 {
     int index;
@@ -60,6 +66,7 @@ struct ConnectMessage
 struct MailMessage
 {
     MessageType type = MessageType::MAIL;
+    int session_id;
     int seq_num;
     char username[MAX_USERNAME];
     char to[MAX_USERNAME];
@@ -70,6 +77,7 @@ struct MailMessage
 struct ReadMessage
 {   
     MessageType type = MessageType::READ;
+    uint32_t session_id;
     int seq_num;
     char username[MAX_USERNAME];
     MessageIdentifier id;
@@ -78,6 +86,7 @@ struct ReadMessage
 struct DeleteMessage
 {
     MessageType type = MessageType::DELETE;
+    uint32_t session_id;
     int seq_num;
     char username[MAX_USERNAME];
     MessageIdentifier id;
@@ -86,9 +95,9 @@ struct DeleteMessage
 struct GetInboxMessage
 {
     MessageType type = MessageType::SHOW_INBOX;
+    uint32_t session_id;
     int seq_num;
     char username[MAX_USERNAME];
-    int session_id;
 };
 
 struct UserCommand
@@ -128,13 +137,12 @@ struct InboxEntry
     char to[MAX_USERNAME];
     char from[MAX_USERNAME];
     char subject[MAX_SUBJECT];
-    char message[MAX_MESS_LEN];
+    char message[EMAIL_LEN];
 };
 
 struct InboxMessage
 {
     MessageType type = MessageType::INBOX;
-    int seq_num;
     MessageIdentifier id;
     InboxEntry msg;
 };

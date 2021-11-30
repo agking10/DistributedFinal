@@ -31,6 +31,11 @@ void synchronize();
 void end_connection(const std::string&);
 void write_command_to_log(std::shared_ptr<UserCommand>);
 void goodbye();
+std::string client_connection_from_id(uint32_t);
+std::string client_inbox_from_id(uint32_t);
+bool message_sent_to_inbox();
+bool message_sent_to_servers();
+bool connection_exists(uint32_t);
 
 struct State
 {

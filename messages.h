@@ -120,7 +120,8 @@ struct CommandMessage
 struct KnowledgeMessage
 {
     MessageType type = MessageType::KNOWLEDGE;
-    int summary[N_MACHINES];
+    int sender;
+    int summary[N_MACHINES][N_MACHINES];
 };
 
 struct AckMessage

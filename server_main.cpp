@@ -31,8 +31,7 @@ static int server_index;
 static std::list<std::shared_ptr<UserCommand>> command_queue[N_MACHINES];
 
 static int n_received;
-
-static bool synchronizing;
+static bool synchronizing = false;
 
 static State state;
 
@@ -55,22 +54,7 @@ int main(int argc, char * argv[])
 
     while (true)
     {
-        ret = SP_receive(mbox, &service_type, sender, 100, &n_connected,
-            target_groups, &mess_type, 
-            &endian_mismatch, sizeof(mess), mess);
-
-        if (ret < 0)
-        {
-            if ((ret == GROUPS_TOO_SHORT) || (ret == BUFFER_TOO_SHORT))
-            {
-                service_type = DROP_RECV;
-                printf("\n========Buffers or Groups too Short=======\n");
-                ret = SP_receive( mbox, &service_type, sender, MAX_MEMBERS, 
-                    &n_connected, target_groups, 
-                    &mess_type, &endian_mismatch, sizeof(mess), mess );
-            }
-        }
-        if (ret < 0) SP_error(ret);
+        read_message();
 
         if (Is_regular_mess(service_type))
         {
@@ -83,6 +67,27 @@ int main(int argc, char * argv[])
     }
 
     return 0;
+}
+
+void read_message()
+{
+    int ret;
+    ret = SP_receive(mbox, &service_type, sender, 100, &n_connected,
+            target_groups, &mess_type, 
+            &endian_mismatch, sizeof(mess), mess);
+
+    if (ret < 0)
+    {
+        if ((ret == GROUPS_TOO_SHORT) || (ret == BUFFER_TOO_SHORT))
+        {
+            service_type = DROP_RECV;
+            printf("\n========Buffers or Groups too Short=======\n");
+            ret = SP_receive( mbox, &service_type, sender, MAX_MEMBERS, 
+                &n_connected, target_groups, 
+                &mess_type, &endian_mismatch, sizeof(mess), mess );
+        }
+    }
+    if (ret < 0) SP_error(ret);
 }
 
 void init()
@@ -146,7 +151,9 @@ void process_data_message()
             }
             else
             {
-                //TODO: send ack rejecting message
+                send_ack(msg->session_id, "Must establish a connection before" 
+                    "sending messages to server.");
+                return;
             }
         }
 
@@ -175,15 +182,38 @@ void process_data_message()
     }
 }
 
+void send_ack(uint32_t session_id, const char * msg)
+{
+    ServerResponse res;
+    std::string client_name = client_connection_from_id(session_id);
+
+    AckMessage ack;
+    strcpy(ack.body, msg);
+    res.data = ack;
+    SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+    MessageType::ACK, sizeof(res), 
+    reinterpret_cast<const char *>(&res));   
+}
+
 void process_membership_message()
 {
     int ret;
     
     if (!Is_reg_memb_mess(service_type)) return;
 
-    if (strcmp(sender, server_group.c_str()) == 0)
+    ret = SP_get_memb_info(mess, service_type, &memb_info);
+    if (ret < 0) 
+    {
+        printf("BUG: membership message does not have valid body\n");
+        SP_error( ret );
+        exit( 1 );
+    }
+
+    if (!synchronizing && is_server_memb_mess())
     {
         synchronize();
+        //garbage_collection();
+        //apply_queued_updates();
     }
     else if (client_connections.find(std::string(sender)) != client_connections.end())
     {
@@ -218,6 +248,8 @@ void apply_command(std::shared_ptr<UserCommand> command)
 
     state.knowledge[server_index][command->id.origin]++;
     write_command_to_log(command);
+    
+    command_queue[command->id.origin].push_back(command);
 
     if (std::holds_alternative<MailMessage>(command->data))
     {
@@ -231,6 +263,8 @@ void apply_command(std::shared_ptr<UserCommand> command)
     {
         apply_delete_message(command);
     }
+
+    broadcast_command(command);
 }
 
 void apply_mail_message(std::shared_ptr<UserCommand> command)
@@ -287,6 +321,13 @@ void process_delete_command()
     //TODO: apply to state and send to other servers
 }
 
+void broadcast_command(std::shared_ptr<UserCommand> command)
+{
+    SP_multicast(mbox, AGREED_MESS, server_group.c_str(),
+        MessageType::COMMAND, sizeof(*command),
+        reinterpret_cast<const char *>(&(*command)));
+}
+
 void send_inbox_to_client()
 {
     GetInboxMessage *msg = reinterpret_cast<GetInboxMessage*>(mess);
@@ -301,12 +342,13 @@ void send_inbox_to_client()
         MessageType::INBOX, sizeof(res), 
         reinterpret_cast<const char *>(&res));
     }
-    AckMessage ack;
-    strcpy(ack.body, "done");
-    res.data = ack;
-    SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
-    MessageType::ACK, sizeof(res), 
-    reinterpret_cast<const char *>(&res));   
+    // AckMessage ack;
+    // strcpy(ack.body, "done");
+    // res.data = ack;
+    // SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+    // MessageType::ACK, sizeof(res), 
+    // reinterpret_cast<const char *>(&res));   
+    send_ack(msg->session_id, "done");
 }
 
 void send_component_to_client()
@@ -323,6 +365,95 @@ void process_connection_request()
 }
 
 void synchronize()
+{
+    synchronizing = true;
+    start:
+    broadcast_knowledge();
+
+    // Check if another split occurred
+    if (!wait_for_everyone())
+        goto start;
+
+    send_my_messages();
+    synchronizing = false;
+}
+
+void broadcast_knowledge()
+{
+    KnowledgeMessage msg;
+    msg.sender = server_index;
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        for (int j = 0; j < N_MACHINES; j++)
+        {
+            msg.summary[i][j] = state.knowledge[i][j];
+        }
+    }
+
+    SP_multicast(mbox, AGREED_MESS, server_group.c_str(),
+        MessageType::KNOWLEDGE, sizeof(msg),
+        reinterpret_cast<const char *>(&msg));
+}
+
+/*
+    Receives a knowledge message from every server in the group except us.
+    If a serviceable command is received or connection is established, handle 
+    it immediately.
+    If an update command is received, stash it in the queue.
+    If a membership message is received from server_group while waiting, 
+    return false.
+*/
+bool wait_for_everyone()
+{
+    //TODO
+    bool received[n_connected];
+    n_received = 0;
+
+    while (n_received < n_connected)
+    {
+        read_message();
+
+        if (Is_regular_mess(service_type))
+        {
+            switch (mess_type)
+            {
+                case MessageType::KNOWLEDGE:
+                    //TODO
+                    break;
+                case MessageType::CONNECT:
+                    process_connection_request();
+                    break;
+                case MessageType::SHOW_INBOX:
+                    send_inbox_to_client();
+                    break;
+                case MessageType::SHOW_COMPONENT:
+                    send_component_to_client();
+                    break;
+                case MessageType::MAIL:
+                case MessageType::READ:
+                case MessageType::DELETE:
+                    stash_command();
+                    break;
+                default:
+                    break;
+            }
+        }
+        else if (Is_reg_memb_mess(service_type))
+        {
+            if (is_server_memb_mess()) return false;
+
+            process_membership_message();
+        }
+    }
+    return true;
+}
+
+void stash_command()
+{
+    //TODO
+}
+
+void send_my_messages()
 {
     //TODO
 }
@@ -366,4 +497,9 @@ bool connection_exists(uint32_t session_id)
 {
     return client_connections.find(client_connection_from_id(session_id))
         != client_connections.end();
+}
+
+bool is_server_memb_mess()
+{
+    return strcmp(sender, server_group.c_str()) == 0;
 }

@@ -222,10 +222,11 @@ void process_membership_message(const char * sender,
                 connection_success();
             }
         }
-        else if (Is_caused_leave_mess(service_type))
+        else if (Is_caused_leave_mess(service_type) || Is_caused_disconnect_mess(service_type))
         {
             disconnect();
             printf("Connection with server has closed. Please connect to a different server.\n");
+            printf("User> ");
         }
     }
 }
@@ -239,10 +240,7 @@ void process_server_response(int16_t mess_type, const char * mess)
     if (mess_type == MessageType::ACK)
     {
         AckMessage ack = std::get<AckMessage>(resp->data);
-        if (ack.seq_num == blocking_id)
-        {
-            printf("%s\n", ack.body);
-        }
+        printf("%s\n", ack.body);
         blocking = false;
     }
     else if (mess_type == MessageType::INBOX)

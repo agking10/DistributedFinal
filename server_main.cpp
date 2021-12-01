@@ -1,6 +1,8 @@
 #include "server.h"
 
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <string>
 #include <unordered_set>
 #include <limits.h>
@@ -28,6 +30,7 @@ static std::string server_group = "all_servers_group";
 static std::string server_inbox;
 static int server_id;
 static int server_index;
+static std::ofstream outfile;
 
 static std::list<std::shared_ptr<UserCommand>> command_queue[N_MACHINES];
 
@@ -137,11 +140,6 @@ void init()
         SP_error(ret);
         goodbye();
     } 
-}
-
-void load_state()
-{
-    //TODO: fetch state from file
 }
 
 void process_data_message()
@@ -260,7 +258,7 @@ void process_command_message(bool queue)
     }
     else
     {
-        apply_command(command);
+        apply_new_command(command);
     }
 }
 
@@ -274,17 +272,26 @@ void process_new_email()
     mail_command->data = *reinterpret_cast<MailMessage*>(mess);
     mail_command->timestamp = time(nullptr);
 
-    apply_command(mail_command);
+    apply_new_command(mail_command);
 }
 
-void apply_command(std::shared_ptr<UserCommand> command)
+void apply_new_command(const std::shared_ptr<UserCommand>& command)
 {
     if (command->id.index != state.knowledge[server_index][command->id.origin] + 1) return;
 
     state.knowledge[server_index][command->id.origin]++;
+
     write_command_to_log(command);
-    
-    command_queue[command->id.origin].push_back(command);
+
+    apply_command_to_state(command);
+
+    if (command->id.origin == server_index)
+        broadcast_command(command); // Broadcast commands that originate on this server
+}
+
+void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
+{
+    command_queue[command->id.origin].push_back(command);   
 
     if (std::holds_alternative<MailMessage>(command->data))
     {
@@ -298,12 +305,9 @@ void apply_command(std::shared_ptr<UserCommand> command)
     {
         apply_delete_message(command);
     }
-
-    if (command->id.origin == server_index)
-        broadcast_command(command); // Broadcast commands that originate on this server
 }
 
-void apply_mail_message(std::shared_ptr<UserCommand> command)
+void apply_mail_message(const std::shared_ptr<UserCommand>& command)
 {
     const MailMessage& msg = std::get<MailMessage>(command->data);
 
@@ -337,19 +341,14 @@ void apply_mail_message(std::shared_ptr<UserCommand> command)
     send_ack(msg.session_id, temp);
 }
 
-void apply_read_message(std::shared_ptr<UserCommand> command)
+void apply_read_message(const std::shared_ptr<UserCommand>& command)
 {
     //TODO
 }
 
-void apply_delete_message(std::shared_ptr<UserCommand> command)
+void apply_delete_message(const std::shared_ptr<UserCommand>& command)
 {
 
-}
-
-void write_command_to_log(std::shared_ptr<UserCommand> command)
-{
-    //TODO
 }
 
 void process_read_command()
@@ -362,7 +361,7 @@ void process_delete_command()
     //TODO: apply to state and send to other servers
 }
 
-void broadcast_command(std::shared_ptr<UserCommand> command)
+void broadcast_command(const std::shared_ptr<UserCommand>& command)
 {
     SP_multicast(mbox, AGREED_MESS, server_group.c_str(),
         MessageType::COMMAND, sizeof(*command),
@@ -452,7 +451,7 @@ void copy_group_members()
 */
 bool wait_for_everyone()
 {
-    //TODO
+    //TODO:
     clear_synch_arrays();
 
     n_received = 1;
@@ -528,6 +527,7 @@ void update_knowledge()
 
 void mark_knowledge_as_received()
 {
+    //TODO: make sure group_id is correct
     KnowledgeMessage * msg = reinterpret_cast<KnowledgeMessage*>(mess);
 
     // Need to check that this member is currently in our partition
@@ -655,7 +655,7 @@ void apply_queued_updates()
 {
     while (!synch_queue.empty())
     {
-        apply_command(synch_queue.front());
+        apply_new_command(synch_queue.front());
         synch_queue.pop_front();
     }
 }
@@ -704,4 +704,105 @@ bool connection_exists(uint32_t session_id)
 bool is_server_memb_mess()
 {
     return strcmp(sender, server_group.c_str()) == 0;
+}
+
+void load_state()
+{
+    read_state_file();
+
+    read_log_files();
+}
+
+void read_state_file()
+{
+    //TODO
+}
+
+void read_log_files()
+{
+    int index;
+    int current_block;
+    std::shared_ptr<UserCommand> command;
+    std::string filename;
+    std::ifstream infile;
+    std::string line;
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        index = state.safe_delivered[i] + 1;
+        current_block = index / FILE_BLOCK_SIZE;
+
+        filename = get_log_name(server_id, i, index);
+        if (!std::filesystem::exists(filename)) continue;
+        infile.open(filename);
+
+        // Skip to first entry not applied to state
+        while (std::getline(infile, line))
+        {
+            if (*reinterpret_cast<const int*>(line.c_str()) == index) 
+            {
+                apply_command_to_state(deserialize_command(line.c_str()));
+                break;
+            }
+        }
+
+        // Apply all remaining files to state
+        while (std::getline(infile, line))
+        {
+            apply_command_to_state(deserialize_command(line.c_str()));
+            ++index;
+            if (index / FILE_BLOCK_SIZE != current_block)
+            {
+                infile.close();
+                if (std::filesystem::exists(get_log_name(server_id, i, index)))
+                {
+                    current_block = index / FILE_BLOCK_SIZE;
+                    infile.open(get_log_name(server_id, i, index));
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+        if (infile.is_open()) infile.close();
+    }
+}
+
+void write_command_to_log(const std::shared_ptr<UserCommand>& command)
+{
+    const int origin = command->id.origin;
+    const int index = command->id.index;
+
+    int block = index / FILE_BLOCK_SIZE;
+
+    outfile.open(get_log_name(server_id, origin, index), std::ios_base::app);
+
+    outfile << serialize_command(command) << "\n";
+    outfile.close();
+}
+
+std::string serialize_command(const std::shared_ptr<UserCommand>& command)
+{
+    std::string out;
+    out += std::to_string(command->id.index) + ",";
+    char buf[sizeof(*command) + 1];
+    memcpy(buf, reinterpret_cast<const char *>(&(command)), sizeof(*command));
+    buf[sizeof(*command)] = 0;
+    out += std::string(out);
+}
+
+std::shared_ptr<UserCommand> deserialize_command(const char * data)
+{
+    int header_size = sizeof(int) + sizeof(char);
+    const UserCommand* command = reinterpret_cast<const UserCommand*>(data + header_size);
+    return std::make_shared<UserCommand>(*command);
+}
+
+std::string get_log_name(int server, int origin, int index)
+{
+    return "log_" 
+    + std::to_string(server) 
+    + "_" + std::to_string(origin)
+    + "_" + std::to_string(index / FILE_BLOCK_SIZE)
+    + ".txt";
 }

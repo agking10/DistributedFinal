@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <memory>
 
+#define FILE_BLOCK_SIZE 1000
+
 void init();
 void load_state();
 void write_state();
@@ -25,11 +27,12 @@ void send_inbox_to_client();
 void send_component_to_client();
 void process_connection_request();
 void process_command_message(bool queue = false);
-void apply_command(std::shared_ptr<UserCommand>);
-void broadcast_command(std::shared_ptr<UserCommand>);
-void apply_mail_message(std::shared_ptr<UserCommand>);
-void apply_read_message(std::shared_ptr<UserCommand>);
-void apply_delete_message(std::shared_ptr<UserCommand>);
+void apply_new_command(const std::shared_ptr<UserCommand>&);
+void apply_command_to_state(const std::shared_ptr<UserCommand>&);
+void broadcast_command(const std::shared_ptr<UserCommand>&);
+void apply_mail_message(const std::shared_ptr<UserCommand>&);
+void apply_read_message(const std::shared_ptr<UserCommand>&);
+void apply_delete_message(const std::shared_ptr<UserCommand>&);
 void synchronize();
 void broadcast_knowledge();
 void copy_group_members();
@@ -47,7 +50,6 @@ std::list<std::shared_ptr<UserCommand>>::iterator
     find_message_index(std::list<std::shared_ptr<UserCommand>>&, int);
 void apply_queued_updates();
 void end_connection(const std::string&);
-void write_command_to_log(std::shared_ptr<UserCommand>);
 void goodbye();
 void send_ack(uint32_t, const char *);
 std::string client_connection_from_id(uint32_t);
@@ -57,10 +59,18 @@ bool message_sent_to_servers();
 bool connection_exists(uint32_t);
 bool is_server_memb_mess();
 
+void read_state_file();
+void read_log_files();
+
+void write_command_to_log(const std::shared_ptr<UserCommand>&);
+std::string serialize_command(const std::shared_ptr<UserCommand>&);
+std::shared_ptr<UserCommand> deserialize_command(const char *);
+std::string get_log_name(int, int, int);
+
 struct State
 {
     int knowledge[N_MACHINES][N_MACHINES];
-    int messages_safe_delivered[N_MACHINES];
+    int safe_delivered[N_MACHINES];
     int applied_to_state[N_MACHINES];
     std::unordered_map<std::string, std::list<InboxMessage>> inboxes;
     std::set<MessageIdentifier> pending_delete;

@@ -142,7 +142,6 @@ void process_data_message()
     else if (message_sent_to_inbox())
     {
         ClientMessage * msg = reinterpret_cast<ClientMessage*>(mess);
-
         if (!connection_exists(msg->session_id))
         {
             if (mess_type == MessageType::CONNECT)
@@ -294,6 +293,11 @@ void apply_mail_message(std::shared_ptr<UserCommand> command)
     }
 
     state.inboxes[std::string(new_mail.msg.to)].push_back(new_mail);
+    
+    char temp[100];
+    strcpy(temp, "done1 ");
+    strcat(temp, std::to_string(state.inboxes[std::string(new_mail.msg.to)].size()).c_str());
+    send_ack(msg.session_id, temp);
 }
 
 void apply_read_message(std::shared_ptr<UserCommand> command)
@@ -347,8 +351,12 @@ void send_inbox_to_client()
     // res.data = ack;
     // SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
     // MessageType::ACK, sizeof(res), 
-    // reinterpret_cast<const char *>(&res));   
-    send_ack(msg->session_id, "done");
+    // reinterpret_cast<const char *>(&res)); 
+    //const char * temp = 
+    char temp[100];
+    strcpy(temp, "done ");
+    strcat(temp, std::to_string(state.inboxes[uname].size()).c_str());
+    send_ack(msg->session_id, temp);
 }
 
 void send_component_to_client()
@@ -450,12 +458,29 @@ bool wait_for_everyone()
 
 void stash_command()
 {
-    //TODO
+    UserCommand new_command;
+    new_command.id.origin = server_index;
+    new_command.id.index = state.knowledge[server_index][server_index] + 1;
+    new_command.timestamp = time(nullptr);
+    switch(mess_type) {
+        case MessageType::MAIL:
+            new_command.data = *reinterpret_cast<MailMessage*>(mess);
+            break;
+        case MessageType::READ:
+            new_command.data = *reinterpret_cast<ReadMessage*>(mess);
+            break;
+        case MessageType::DELETE: 
+            new_command.data = *reinterpret_cast<DeleteMessage*>(mess);
+            break;
+    }
+    synch_queue.push_back(new_command);
 }
 
 void send_my_messages()
 {
-    //TODO
+    for (const auto& i: synch_queu) {
+        apply_command(i);
+    }
 }
 
 void end_connection(const std::string& group)

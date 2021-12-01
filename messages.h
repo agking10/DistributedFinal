@@ -66,7 +66,7 @@ struct ConnectMessage
 struct MailMessage
 {
     MessageType type = MessageType::MAIL;
-    int session_id;
+    uint32_t session_id;
     int seq_num;
     char username[MAX_USERNAME];
     char to[MAX_USERNAME];

@@ -5,12 +5,10 @@
 #include "utils.hpp"
 #include <stdint.h>
 #include <stdexcept>
-#include <random>
 #include <unordered_map>
 #include <list>
 #include <set>
-
-using RNG = std::mt19937;
+#include <cstdlib>
 
 static std::string username;
 //static int uid;
@@ -21,9 +19,7 @@ static std::string client_inbox;
 static bool logged_in;
 static bool connected;
 static uint32_t session_id;
-static RNG generator;
 static sp_time test_timeout;
-std::uniform_int_distribution<uint32_t> rng_dst;
 
 //Spread structs
 static mailbox mbox;
@@ -73,7 +69,8 @@ void start()
 
     sprintf(spread_name, std::to_string(PORT).c_str());
 
-    session_id = rng_dst(generator);
+    srand(time(nullptr));
+    session_id = rand();
 
     test_timeout.sec = 5;
     test_timeout.usec = 0;
@@ -251,7 +248,7 @@ void process_server_response(int16_t mess_type, const char * mess)
     else if (mess_type == MessageType::INBOX)
     {
         InboxMessage email = std::get<InboxMessage>(resp->data);
-        printf("mail: %s", email.msg.subject);
+        printf("mail: %s\n", email.msg.subject);
     }
 }
 
@@ -330,7 +327,7 @@ void leave_current_session()
     requests.clear();
 
     // Generate new session id
-    session_id = rng_dst(generator);
+    session_id = rand();
 }
 
 void disconnect()
@@ -349,22 +346,25 @@ void send_email()
         printf("Invalid send address\n");
         return;
     }
+    strip_newline(msg.to);
     printf("Subject: ");
     if (fgets(msg.subject, MAX_SUBJECT, stdin) == NULL)
     {
         printf("Invalid subject\n");
         return;
     }
+    strip_newline(msg.subject);
     printf("Message: ");
     if (fgets(msg.message, EMAIL_LEN, stdin) == NULL)
     {
         printf("Invalid message body\n");
         return;
     }
+    strip_newline(msg.message);
     msg.seq_num = seq_num++;
+    msg.session_id = session_id;
     strcpy(msg.username, username.c_str());
 
-    requests[seq_num] = {};
 
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 

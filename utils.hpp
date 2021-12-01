@@ -19,3 +19,9 @@ void require(bool cond, const std::string & msg, Func f, Args&&... args)
     else
         f(std::forward<Args>(args)...);
 }
+
+void strip_newline(char * buf)
+{
+    if (buf[strlen(buf) - 1] == '\n')
+        buf[strlen(buf) - 1] = '\0';
+}

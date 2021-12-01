@@ -26,6 +26,7 @@ static std::unordered_set<int> clients;
 static std::string server_group = "all_servers_group";
 static std::string server_inbox;
 static int server_id;
+static int server_index;
 
 static std::list<std::shared_ptr<UserCommand>> command_queue[N_MACHINES];
 
@@ -47,6 +48,8 @@ int main(int argc, char * argv[])
 
     server_id = std::stoi(argv[1]);
     server_inbox = "server_" + std::string(argv[1]) + "_in";
+
+    server_index = server_id - 1;
 
     init();
 
@@ -200,8 +203,8 @@ void process_new_email()
 {
     std::shared_ptr<UserCommand> mail_command = std::make_shared<UserCommand>();
 
-    mail_command->id.origin = server_id;
-    mail_command->id.index = state.knowledge[server_id][server_id] + 1;
+    mail_command->id.origin = server_index;
+    mail_command->id.index = state.knowledge[server_index][server_index] + 1;
 
     mail_command->data = *reinterpret_cast<MailMessage*>(mess);
     mail_command->timestamp = time(nullptr);
@@ -211,9 +214,9 @@ void process_new_email()
 
 void apply_command(std::shared_ptr<UserCommand> command)
 {
-    if (command->id.index != state.knowledge[server_id][command->id.origin] + 1) return;
+    if (command->id.index != state.knowledge[server_index][command->id.origin] + 1) return;
 
-    state.knowledge[server_id][command->id.origin]++;
+    state.knowledge[server_index][command->id.origin]++;
     write_command_to_log(command);
 
     if (std::holds_alternative<MailMessage>(command->data))

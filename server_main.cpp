@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_set>
+#include <limits.h>
 #include <ctime>
 
 static mailbox mbox;
@@ -20,7 +21,7 @@ static membership_info  memb_info;
 static int endian_mismatch;
 static sp_time test_timeout;
 
-static std::list<UserCommand> synch_queue;
+static std::list<std::shared_ptr<UserCommand>> synch_queue;
 static std::unordered_set<std::string> client_connections;
 static std::unordered_set<int> clients;
 static std::string server_group = "all_servers_group";
@@ -30,7 +31,16 @@ static int server_index;
 
 static std::list<std::shared_ptr<UserCommand>> command_queue[N_MACHINES];
 
+// Used for synchronizing
 static int n_received;
+static int n_synching;
+static bool received[N_MACHINES];
+static char synch_members[MAX_MEMBERS][MAX_GROUP_NAME];
+static bool servers_present[N_MACHINES];
+static bool need_to_send[N_MACHINES];       // Keep track of which servers' 
+                                            //messages we need to send during synch
+static int start_index[N_MACHINES];         // Keep track of the first message
+                                            // we need to send for servers in need_to_send
 static bool synchronizing = false;
 
 static State state;
@@ -97,6 +107,7 @@ void init()
     load_state();
 
     sprintf(spread_name, std::to_string(PORT).c_str());
+    sprintf(user, std::to_string(server_index).c_str());
 
     test_timeout.sec = 5;
     test_timeout.usec = 0;
@@ -212,7 +223,7 @@ void process_membership_message()
     {
         synchronize();
         //garbage_collection();
-        //apply_queued_updates();
+        apply_queued_updates();
     }
     else if (client_connections.find(std::string(sender)) != client_connections.end())
     {
@@ -225,7 +236,32 @@ void process_membership_message()
 
 void process_backend_message()
 {
-    //TODO: handle messages between servers, during synch or otherwise
+    switch (mess_type)
+    {
+        case MessageType::KNOWLEDGE:
+            update_knowledge();
+            break;
+        case MessageType::COMMAND:
+            process_command_message();
+            break;
+        default:
+            break;
+    }
+}
+
+void process_command_message(bool queue)
+{
+    UserCommand* msg = reinterpret_cast<UserCommand*>(mess);
+    std::shared_ptr<UserCommand> command 
+        = std::make_shared<UserCommand>(*msg);
+    if (queue)
+    {
+        synch_queue.push_back(command);
+    }
+    else
+    {
+        apply_command(command);
+    }
 }
 
 void process_new_email()
@@ -263,7 +299,8 @@ void apply_command(std::shared_ptr<UserCommand> command)
         apply_delete_message(command);
     }
 
-    broadcast_command(command);
+    if (command->id.origin == server_index)
+        broadcast_command(command); // Broadcast commands that originate on this server
 }
 
 void apply_mail_message(std::shared_ptr<UserCommand> command)
@@ -346,13 +383,6 @@ void send_inbox_to_client()
         MessageType::INBOX, sizeof(res), 
         reinterpret_cast<const char *>(&res));
     }
-    // AckMessage ack;
-    // strcpy(ack.body, "done");
-    // res.data = ack;
-    // SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
-    // MessageType::ACK, sizeof(res), 
-    // reinterpret_cast<const char *>(&res)); 
-    //const char * temp = 
     char temp[100];
     strcpy(temp, "done ");
     strcat(temp, std::to_string(state.inboxes[uname].size()).c_str());
@@ -376,6 +406,7 @@ void synchronize()
 {
     synchronizing = true;
     start:
+    copy_group_members();
     broadcast_knowledge();
 
     // Check if another split occurred
@@ -403,6 +434,14 @@ void broadcast_knowledge()
         reinterpret_cast<const char *>(&msg));
 }
 
+void copy_group_members()
+{
+    for (int i = 0; i < n_connected; i++)
+    {
+        strcpy(synch_members[i], target_groups[i]);
+    }
+}
+
 /*
     Receives a knowledge message from every server in the group except us.
     If a serviceable command is received or connection is established, handle 
@@ -414,10 +453,14 @@ void broadcast_knowledge()
 bool wait_for_everyone()
 {
     //TODO
-    bool received[n_connected];
-    n_received = 0;
+    clear_synch_arrays();
 
-    while (n_received < n_connected)
+    n_received = 1;
+    received[server_index] = true;
+    servers_present[server_index] = true;
+    n_synching = n_connected;
+
+    while (n_received < n_synching)
     {
         read_message();
 
@@ -426,7 +469,8 @@ bool wait_for_everyone()
             switch (mess_type)
             {
                 case MessageType::KNOWLEDGE:
-                    //TODO
+                    update_knowledge();
+                    mark_knowledge_as_received();
                     break;
                 case MessageType::CONNECT:
                     process_connection_request();
@@ -436,6 +480,9 @@ bool wait_for_everyone()
                     break;
                 case MessageType::SHOW_COMPONENT:
                     send_component_to_client();
+                    break;
+                case MessageType::COMMAND:
+                    process_command_message(true);
                     break;
                 case MessageType::MAIL:
                 case MessageType::READ:
@@ -456,21 +503,68 @@ bool wait_for_everyone()
     return true;
 }
 
+void clear_synch_arrays()
+{
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        received[i] = false;
+        servers_present[i] = false;
+    }
+}
+
+void update_knowledge()
+{
+    KnowledgeMessage * msg = reinterpret_cast<KnowledgeMessage*>(mess);
+
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        for (int j = 0; j < N_MACHINES; j++)
+        {
+            state.knowledge[i][j] = std::max(state.knowledge[i][j],
+                 msg->summary[i][j]);
+        }
+    }
+}
+
+void mark_knowledge_as_received()
+{
+    KnowledgeMessage * msg = reinterpret_cast<KnowledgeMessage*>(mess);
+
+    // Need to check that this member is currently in our partition
+    // and we haven't received an update from them yet
+    if (sender_in_group() && received[msg->sender] == false)
+    {
+        received[msg->sender] = true;
+        servers_present[msg->sender] = true;
+        ++n_received;
+    }
+}
+
+bool sender_in_group()
+{
+    for (int i = 0; i < n_synching; i++)
+    {
+        if (strcmp(sender, synch_members[i]) == 0)
+            return true;
+    }
+    return false;
+}
+
 void stash_command()
 {
-    UserCommand new_command;
-    new_command.id.origin = server_index;
-    new_command.id.index = state.knowledge[server_index][server_index] + 1;
-    new_command.timestamp = time(nullptr);
+    std::shared_ptr<UserCommand> new_command = std::make_shared<UserCommand>();
+    new_command->id.origin = server_index;
+    new_command->id.index = state.knowledge[server_index][server_index] + 1;
+    new_command->timestamp = time(nullptr);
     switch(mess_type) {
         case MessageType::MAIL:
-            new_command.data = *reinterpret_cast<MailMessage*>(mess);
+            new_command->data = *reinterpret_cast<MailMessage*>(mess);
             break;
         case MessageType::READ:
-            new_command.data = *reinterpret_cast<ReadMessage*>(mess);
+            new_command->data = *reinterpret_cast<ReadMessage*>(mess);
             break;
         case MessageType::DELETE: 
-            new_command.data = *reinterpret_cast<DeleteMessage*>(mess);
+            new_command->data = *reinterpret_cast<DeleteMessage*>(mess);
             break;
     }
     synch_queue.push_back(new_command);
@@ -478,8 +572,91 @@ void stash_command()
 
 void send_my_messages()
 {
-    for (const auto& i: synch_queu) {
-        apply_command(i);
+    count_my_synch_servers();
+    send_synch_commands();
+}
+
+/*
+    Records which servers' messages we are most up to date on and therefore
+    need to send to the group. Ties are broken by server id.
+*/
+void count_my_synch_servers()
+{
+    //TODO: MAKE SURE COLUMN AND ROW ORDER ARE CORRECT
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        need_to_send[i] = false;
+    }
+
+    for (int i = 0; i < N_MACHINES; i++) // Loop over each origin server
+    {
+        int max_server = 0;
+        int max_message = INT_MIN;
+        int min_message = INT_MAX;
+        for (int j = 0; j < N_MACHINES; j++) // Loop over servers in this group
+        {
+            if (!servers_present[j]) continue; // Skip if this server is not in the group
+            if (state.knowledge[i][j] > max_message)
+            {
+                max_server = j;
+                max_message = state.knowledge[i][j];
+            }
+            if (state.knowledge[i][j] < min_message)
+            {
+                min_message = state.knowledge[i][j];
+            }
+        }
+        if (max_server == server_index)
+        {
+            need_to_send[i] = true;
+            start_index[i] = min_message;
+        }
+    }
+}
+
+void send_synch_commands()
+{
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        if (need_to_send[i])
+        {
+            broadcast_messages_from_queue(i, start_index[i]);
+        }
+    }
+}
+
+void broadcast_messages_from_queue(int origin, int start_index)
+{
+    auto it = find_message_index(command_queue[origin], start_index);
+    while (it != command_queue[origin].end())
+    {
+        broadcast_command(*it);
+        ++it;
+    }
+}
+
+/*
+    Linear scan through list to find user command with index start_index.
+    If not found, return list.cend();
+*/
+std::list<std::shared_ptr<UserCommand>>::iterator 
+find_message_index(std::list<std::shared_ptr<UserCommand>>& queue, int start_index)
+{
+    auto it = queue.begin();
+    while (it != queue.end())
+    {
+        if ((*it)->id.index == start_index + 1) return it;
+        ++it;
+    }
+    return it;
+}
+
+void apply_queued_updates()
+{
+    while (!synch_queue.empty())
+    {
+        apply_command(synch_queue.front());
+        synch_queue.pop_front();
     }
 }
 

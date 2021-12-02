@@ -61,14 +61,6 @@ ptree generate_2d_ptree(T * array, int rows, int cols)
     return output;
 }
 
-ptree generate_ptree(const MessageIdentifier& id)
-{
-    ptree output;
-    output.put("origin", id.origin);
-    output.put("index", id.index);
-    return output;
-}
-
 template <typename T>
 void read_1d_ptree_array(T * array, int n, const ptree& pt)
 {

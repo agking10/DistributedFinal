@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
+#include <boost/property_tree/ptree.hpp>
 
 #define FILE_BLOCK_SIZE 1000
 

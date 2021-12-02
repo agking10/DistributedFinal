@@ -8,6 +8,8 @@
 #include <limits.h>
 #include <ctime>
 
+using boost::property_tree::ptree;
+
 static mailbox mbox;
 static int seq_num;
 static char user[80];
@@ -279,8 +281,6 @@ void apply_new_command(const std::shared_ptr<UserCommand>& command)
 {
     if (command->id.index != state.knowledge[server_index][command->id.origin] + 1) return;
 
-    state.knowledge[server_index][command->id.origin]++;
-
     write_command_to_log(command);
 
     apply_command_to_state(command);
@@ -291,6 +291,9 @@ void apply_new_command(const std::shared_ptr<UserCommand>& command)
 
 void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
 {
+    state.knowledge[server_index][command->id.origin]++;
+    state.applied_to_state[command->id.origin]++;
+
     command_queue[command->id.origin].push_back(command);   
 
     if (std::holds_alternative<MailMessage>(command->data))
@@ -747,7 +750,7 @@ void read_log_files()
     std::string line;
     for (int i = 0; i < N_MACHINES; i++)
     {
-        index = state.safe_delivered[i] + 1;
+        index = state.applied_to_state[i] + 1;
         current_block = index / FILE_BLOCK_SIZE;
 
         filename = get_log_name(server_id, i, index);
@@ -755,12 +758,12 @@ void read_log_files()
         infile.open(filename, std::ios::binary);
 
         // Apply all remaining files to state
-        while (!inflie.eof())
+        while (!infile.eof())
         {
             infile.read(reinterpret_cast<char*>(&buf), sizeof(UserCommand));
             if (buf.id.index == index) 
             {
-                apply_command_to_state(deserialize_command(line.c_str()));
+                apply_command_to_state(std::make_shared<UserCommand>(buf));
                 ++index;
             }
 
@@ -821,4 +824,20 @@ std::string get_log_name(int server, int origin, int index)
     + std::to_string(server) 
     + "_" + std::to_string(origin)
     + "_" + std::to_string(index / FILE_BLOCK_SIZE);
+}
+
+void write_state()
+{
+    ptree state_tree;
+    ptree knowledge;
+    for (int i = 0; i < N_MACHINES; i++)
+    {
+        ptree row;
+        for (int j = 0; j < N_MACHINES; j++)
+        {
+            ptree col;
+            col.put("", state.knowledge[i][j]);
+        }
+        row.push_bakc(std::make_pair("", col));
+    }
 }

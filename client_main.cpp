@@ -472,6 +472,10 @@ void read_email(int index) {
     msg.session_id = session_id;
     strcpy(msg.username, username.c_str());
     msg.id = find_id_using_index(index - 1);
+    char temp[100];
+    strcpy(temp, "");
+    strcat(temp, std::to_string(msg.id.index).c_str());
+    strcat(temp, std::to_string(msg.id.origin).c_str());
     int indx = 0;
     
     SP_multicast(mbox, AGREED_MESS, 

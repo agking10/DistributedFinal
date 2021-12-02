@@ -459,7 +459,13 @@ void send_mail_to_client()
         }
     }
     if (!exist) {
-        send_ack(msg->session_id, "there was a problem reading this mail");
+        char temp[100];
+        strcpy(temp, "done ");
+                strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.index).c_str());
+                strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.origin).c_str());
+        send_ack(msg->session_id, temp);
+        
+        //send_ack(msg->session_id, "there was a problem reading this mail");
     }
 }
 

@@ -8,8 +8,6 @@
 #include <limits.h>
 #include <ctime>
 
-using boost::property_tree::ptree;
-
 static mailbox mbox;
 static int seq_num;
 static char user[80];
@@ -110,6 +108,7 @@ void init()
     int ret;
 
     load_state();
+    write_state();
 
     sprintf(spread_name, std::to_string(PORT).c_str());
     sprintf(user, std::to_string(server_index).c_str());
@@ -829,15 +828,56 @@ std::string get_log_name(int server, int origin, int index)
 void write_state()
 {
     ptree state_tree;
-    ptree knowledge;
-    for (int i = 0; i < N_MACHINES; i++)
-    {
-        ptree row;
-        for (int j = 0; j < N_MACHINES; j++)
-        {
-            ptree col;
-            col.put("", state.knowledge[i][j]);
-        }
-        row.push_bakc(std::make_pair("", col));
-    }
+    state_tree.push_back(std::make_pair("knowledge", 
+        generate_2d_ptree(state.knowledge, N_MACHINES, N_MACHINES)));
+    state_tree.push_back(std::make_pair("safe_delivered",
+        generate_1d_ptree(state.safe_delivered, N_MACHINES)));
+    state_tree.push_back(std::make_pair("applied_to_state",
+        generate_1d_ptree(state.applied_to_state, N_MACHINES)));
+
+    state_tree.push_back(std::make_pair("pending_delete",
+        generate_iterable_ptree(state.pending_delete, ptree_from_identifier)));
+    state_tree.push_back(std::make_pair("pending_read",
+        generate_iterable_ptree(state.pending_read, ptree_from_identifier)));
+    state_tree.push_back(std::make_pair("deleted",
+        generate_iterable_ptree(state.deleted, ptree_from_identifier)));
+
+    state_tree.push_back(std::make_pair("inboxes", 
+        generate_iterable_ptree(state.inboxes, inbox_to_ptree)));
+    
+    write_json("state.json", state_tree);
 }
+
+ptree ptree_from_identifier(const MessageIdentifier& id)
+{
+    ptree output;
+    output.put("origin", id.origin);
+    output.put("index", id.index);
+    return output;
+}
+
+ptree inbox_to_ptree(const std::pair<std::string, std::list<InboxMessage>>& inbox)
+{
+    ptree output;
+    output.put("username", inbox.first);
+    output.push_back(std::make_pair("inbox", 
+        generate_iterable_ptree(inbox.second, ptree_from_inbox_message)));
+    return output;
+}
+
+ptree ptree_from_inbox_message(const InboxMessage& message)
+{
+    ptree output;
+    output.put("read", message.msg.read);
+    output.push_back(std::make_pair("id", ptree_from_identifier(message.id)));
+    output.put("date_sent", message.msg.date_sent);
+    output.put("to", message.msg.to);
+    output.put("from", message.msg.from);
+    output.put("subject", message.msg.subject);
+    output.put("message", message.msg.message);
+}
+
+ptree generate_applied_to_state_ptree();
+ptree generate_inboxes_ptree();
+ptree generate_inbox_message_ptree();
+ptree generate_id_set_ptree();

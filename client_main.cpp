@@ -41,6 +41,7 @@ static std::unordered_map<int, std::list<ServerResponse>> requests;
 static std::multiset<InboxHeader> inbox;
 static bool blocking;
 static int blocking_id;
+static bool listed = false;
 
 int main(int argc, char * argv[])
 {
@@ -145,10 +146,46 @@ void handle_keyboard_in(int, int, void*)
             );
             break;
         case 'd':
-            //TODO
+            ret = sscanf(&command[2], "%s", args);
+            if (ret < 1)
+            {
+                printf("Invalid mail selection\n");
+                break;
+            }
+            try
+            {
+                require(
+                    listed,
+                    "Must list mail first",
+                    delete_email,
+                    std::stoi(args)
+                );
+            }
+            catch(const std::invalid_argument& e)
+            {
+                printf("Invalid mail selection\n");
+            }
             break;
         case 'r':
-            //TODO
+            ret = sscanf(&command[2], "%s", args);
+            if (ret < 1)
+            {
+                printf("Invalid mail selection\n");
+                break;
+            }
+            try
+            {
+                require(
+                    listed,
+                    "Must list mail first",
+                    read_email,
+                    std::stoi(args)
+                );
+            }
+            catch(const std::invalid_argument& e)
+            {
+                printf("Invalid mail selection\n");
+            }
             break;
         case 'v':
             //TODO
@@ -245,18 +282,20 @@ void process_server_response(int16_t mess_type, const char * mess)
     else if (mess_type == MessageType::INBOX)
     {
         const ServerInboxResponse* resp = reinterpret_cast<const ServerInboxResponse*>(mess);
-        for (const auto& i: resp->inbox) {
-            inbox.insert(i);
+        for (int i = 0; i < resp->mail_count; i++) {
+            inbox.insert(resp->inbox[i]);
         }
-        int indx = 0;
+        int indx = 1;
         for (const auto & i: inbox) {
-            char temp[100];
-            strcpy(temp, std::to_string(indx).c_str());
-            strcat(temp, ". from: %s subject: %s\n");
-
-            printf(temp, i.sender, i.subject);
+            printf(std::to_string(indx).c_str());
+            printf(". from: %s subject: %s read: %s\n", i.sender, i.subject, i.read ? "true" : "false");
             indx++;
         }
+    }
+    else if (mess_type == MessageType::RESPONSE) {
+        const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
+        InboxMessage msg = std::get<InboxMessage>(resp->data);
+        printf("From: %s\n Subject: %s\n%s", msg.msg.from, msg.msg.subject, msg.msg.message);
     }
 }
 
@@ -404,6 +443,63 @@ void get_inbox()
         handle_spread_message(0, 0, nullptr);
     }
     blocking = false;
+    listed = true;
+}
+
+void delete_email(int index) {
+
+    DeleteMessage msg;
+    msg.session_id = session_id;
+    strcpy(msg.username, username.c_str());
+    msg.id = find_id_using_index(index);
+    int indx = 0;
+    
+    SP_multicast(mbox, AGREED_MESS, 
+        connected_server_inbox.c_str(), 
+        MessageType::DELETE,
+        sizeof(msg),
+        reinterpret_cast<const char*>(&msg)
+    );
+}
+
+void read_email(int index) {
+
+    if (index < 1 || index > inbox.size()) {
+        printf("invalid selection\n");
+        return;
+    }
+    ReadMessage msg;
+    msg.session_id = session_id;
+    strcpy(msg.username, username.c_str());
+    msg.id = find_id_using_index(index - 1);
+    int indx = 0;
+    
+    SP_multicast(mbox, AGREED_MESS, 
+        connected_server_inbox.c_str(), 
+        MessageType::READ,
+        sizeof(msg),
+        reinterpret_cast<const char*>(&msg)
+    );
+
+    blocking = true;
+    while (blocking && connected)
+    {
+        handle_spread_message(0, 0, nullptr);
+    }
+    blocking = false;
+}
+
+MessageIdentifier find_id_using_index(int index) {
+    int counter = 0;
+    for (const auto & i: inbox) {
+        if (counter == index) {
+            MessageIdentifier temp;
+            temp.origin = i.id.origin;
+            temp.index = i.id.index;
+            return temp;
+        }
+        counter++;
+    }
 }
 
 void goodbye()

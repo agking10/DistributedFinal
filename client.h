@@ -2,7 +2,7 @@
 
 #include "net_include.h"
 #include "sp.h"
-
+#include "messages.h"
 #include <string>
 #include <stdint.h>
 #include <iostream>
@@ -25,3 +25,6 @@ void send_email();
 void get_inbox();
 void goodbye();
 void print_menu();
+MessageIdentifier find_id_using_index(int index);
+void read_email(int index);
+void delete_email(int index);

@@ -29,6 +29,7 @@ void process_new_email();
 void process_read_command();
 void process_delete_command();
 void send_inbox_to_client();
+void send_mail_to_client();
 void send_component_to_client();
 void process_connection_request();
 void process_command_message(bool queue = false);

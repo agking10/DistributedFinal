@@ -9,7 +9,7 @@
 #define EMAIL_LEN 1000
 #define N_MACHINES 5
 #define MAX_MEMBERS 100
-
+#define INBOX_LIMIT 20
 enum MessageType
 {
     // Client to server messages
@@ -178,7 +178,8 @@ struct InboxHeader
     char subject [MAX_SUBJECT];
     char sender [MAX_USERNAME];
     bool read;
-
+    MessageIdentifier id;
+    
     friend bool operator<(const InboxHeader& m1, const InboxHeader& m2);
 
 };
@@ -190,5 +191,6 @@ bool operator<(const InboxHeader& m1, const InboxHeader& m2) {
 struct ServerInboxResponse
 {
     MessageType type = MessageType::RESPONSE;
+    int mail_count;
     InboxHeader inbox[20];
 };

@@ -274,9 +274,36 @@ void process_new_email()
     mail_command->id.index = state.knowledge[server_index][server_index] + 1;
 
     mail_command->data = *reinterpret_cast<MailMessage*>(mess);
-    mail_command->timestamp = time(nullptr);
+    mail_command->timestamp = std::time(0);
 
     apply_new_command(mail_command);
+}
+
+void process_read_command()
+{
+    send_mail_to_client();
+    std::shared_ptr<UserCommand> read_command = std::make_shared<UserCommand>();
+
+    read_command->id.origin = server_index;
+    read_command->id.index = state.knowledge[server_index][server_index] + 1;
+
+    read_command->data = *reinterpret_cast<ReadMessage*>(mess);
+    read_command->timestamp = std::time(0);
+
+    apply_new_command(read_command);
+}
+
+void process_delete_command()
+{
+    std::shared_ptr<UserCommand> delete_command = std::make_shared<UserCommand>();
+
+    delete_command->id.origin = server_index;
+    delete_command->id.index = state.knowledge[server_index][server_index] + 1;
+
+    delete_command->data = *reinterpret_cast<DeleteMessage*>(mess);
+    delete_command->timestamp = std::time(0);
+
+    apply_new_command(delete_command);
 }
 
 void apply_new_command(const std::shared_ptr<UserCommand>& command)
@@ -351,37 +378,32 @@ void apply_read_message(const std::shared_ptr<UserCommand>& command)
     const ReadMessage& msg = std::get<ReadMessage>(command->data);
     bool exist = false;
     for (std::list<InboxMessage>::iterator it = state.inboxes[msg.username].begin(); it != state.inboxes[msg.username].end(); ++it) {
-        if (it->id.index == msg.id.index && it->id.origin == msg.id.origin ) 
+        if (it->id == msg.id) 
             exist = true;
             it->msg.read = true;
     }
     if (!exist) {
         state.pending_read.insert(msg.id);
     }
+    send_ack(msg.session_id, "done\n");
 }
 
 void apply_delete_message(const std::shared_ptr<UserCommand>& command)
 {
     const DeleteMessage& msg = std::get<DeleteMessage>(command->data);
     bool exist = false;
+
     for (const auto& i: state.inboxes[msg.username]) {
         if (i.id == msg.id) 
             exist = true;
-            state.inboxes[msg.username].remove(i);
     }
     if (!exist) {
         state.pending_delete.insert(msg.id);
+    } else {
+        InboxMessage temp;
+        temp.id = msg.id;
+        state.inboxes[msg.username].remove(temp);
     }
-}
-
-void process_read_command()
-{
-    //TODO: apply to state and send to other servers
-}
-
-void process_delete_command()
-{
-    //TODO: apply to state and send to other servers
 }
 
 void broadcast_command(const std::shared_ptr<UserCommand>& command)
@@ -404,8 +426,10 @@ void send_inbox_to_client()
         strcpy(res.inbox[counter].subject, i.msg.subject);
         strcpy(res.inbox[counter].sender, i.msg.from);
         res.inbox[counter].read = i.msg.read;
+        if (counter >= INBOX_LIMIT) break;
+        counter++;
     }
-
+    res.mail_count = counter;
     SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
     MessageType::INBOX, sizeof(res), 
     reinterpret_cast<const char *>(&res));
@@ -414,6 +438,29 @@ void send_inbox_to_client()
     strcpy(temp, "done ");
     strcat(temp, std::to_string(state.inboxes[uname].size()).c_str());
     send_ack(msg->session_id, temp);
+}
+
+void send_mail_to_client()
+{
+    //TODO consolidate all emails before sending (slack message)
+    ReadMessage *msg = reinterpret_cast<ReadMessage*>(mess);
+    std::string uname = msg->username;
+    std::string client_name = client_inbox_from_id(msg->session_id);
+    
+    ServerResponse res;
+    bool exist = false;
+    for (const auto& i: state.inboxes[uname]) {
+        if (i.id == msg->id) {
+            res.data = i;
+            SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+            MessageType::RESPONSE, sizeof(res), 
+            reinterpret_cast<const char *>(&res));
+            exist = true;
+        }
+    }
+    if (!exist) {
+        send_ack(msg->session_id, "there was a problem reading this mail");
+    }
 }
 
 void send_component_to_client()
@@ -743,6 +790,9 @@ void load_state()
 
 void read_state_file()
 {
+    printf("here1");
+    fflush(0);
+    try {
     ptree state_tree; 
     read_json(state_file, state_tree);
     read_2d_ptree_array(state.knowledge, N_MACHINES, N_MACHINES, 
@@ -758,6 +808,12 @@ void read_state_file()
     rehydrate_set_from_ptree(state.deleted, identifier_from_ptree, 
         state_tree.get_child("deleted"));
     extract_inboxes_to_state(state_tree.get_child("inboxes"));
+    printf("here2");
+    fflush(0);
+    } catch (...) {
+        printf("skipped state reading \n");
+        return;
+    }
 }
 
 void extract_inboxes_to_state(const ptree& pt)
@@ -868,23 +924,6 @@ std::string get_log_name(int server, int origin, int index)
     + "_" + std::to_string(index / FILE_BLOCK_SIZE);
 }
 
-<<<<<<< HEAD
-// void write_state()
-// {
-//     ptree state_tree;
-//     ptree knowledge;
-//     for (int i = 0; i < N_MACHINES; i++)
-//     {
-//         ptree row;
-//         for (int j = 0; j < N_MACHINES; j++)
-//         {
-//             ptree col;
-//             col.put("", state.knowledge[i][j]);
-//         }
-//         row.push_back(std::make_pair("", col));
-//     }
-// }
-=======
 ptree ptree_from_identifier(const MessageIdentifier& id)
 {
     ptree output;
@@ -935,4 +974,3 @@ InboxMessage inbox_message_from_ptree(const ptree& pt)
     return result;
 }
 
->>>>>>> 50094d46d69b746e06ff8579ae0154aa9ce39633

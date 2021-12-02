@@ -3,6 +3,7 @@
 #include "net_include.h"
 #include "sp.h"
 #include "messages.h"
+#include "utils.hpp"
 
 #include <list>
 #include <set>
@@ -10,8 +11,11 @@
 #include <unordered_map>
 #include <memory>
 #include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
 #define FILE_BLOCK_SIZE 1000
+
+using boost::property_tree::ptree;
 
 void init();
 void load_state();
@@ -68,6 +72,15 @@ std::string serialize_command(const std::shared_ptr<UserCommand>&);
 std::shared_ptr<UserCommand> deserialize_command(const char *);
 std::string get_log_name(int, int, int);
 
+ptree ptree_from_identifier(const MessageIdentifier&);
+ptree inbox_to_ptree(const std::pair<std::string, std::list<InboxMessage>>&);
+ptree ptree_from_inbox_message(const InboxMessage&);
+MessageIdentifier identifier_from_ptree(const ptree&);
+
+void extract_inboxes_to_state(const ptree&);
+std::list<InboxMessage> get_inbox_list_from_ptree(const ptree&);
+InboxMessage inbox_message_from_ptree(const ptree&);
+
 struct State
 {
     int knowledge[N_MACHINES][N_MACHINES];
@@ -77,4 +90,5 @@ struct State
     std::set<MessageIdentifier> pending_delete;
     std::set<MessageIdentifier> pending_read;
     std::set<MessageIdentifier> deleted;
+    std::set<int> test;
 };

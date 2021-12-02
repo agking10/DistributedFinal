@@ -38,7 +38,7 @@ static int endian_mismatch;
 
 // Keep track of requests that have not been filled yet
 static std::unordered_map<int, std::list<ServerResponse>> requests;
-static std::multiset<InboxMessage> inbox;
+static std::multiset<InboxHeader> inbox;
 static bool blocking;
 static int blocking_id;
 
@@ -235,18 +235,28 @@ void process_server_response(int16_t mess_type, const char * mess)
 {
     if (!blocking) return;
 
-    const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
-
     if (mess_type == MessageType::ACK)
     {
+        const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
         AckMessage ack = std::get<AckMessage>(resp->data);
         printf("%s\n", ack.body);
         blocking = false;
     }
     else if (mess_type == MessageType::INBOX)
     {
-        InboxMessage email = std::get<InboxMessage>(resp->data);
-        printf("mail: %s\n", email.msg.subject);
+        const ServerInboxResponse* resp = reinterpret_cast<const ServerInboxResponse*>(mess);
+        for (const auto& i: resp->inbox) {
+            inbox.insert(i);
+        }
+        int indx = 0;
+        for (const auto & i: inbox) {
+            char temp[100];
+            strcpy(temp, std::to_string(indx).c_str());
+            strcat(temp, ". from: %s subject: %s\n");
+
+            printf(temp, i.sender, i.subject);
+            indx++;
+        }
     }
 }
 

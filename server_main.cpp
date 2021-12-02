@@ -395,14 +395,19 @@ void send_inbox_to_client()
     GetInboxMessage *msg = reinterpret_cast<GetInboxMessage*>(mess);
     std::string uname = msg->username;
     std::string client_name = client_inbox_from_id(msg->session_id);
-    ServerResponse res;
-    res.seq_num = msg->seq_num;
+    
+    ServerInboxResponse res;
+    int counter = 0;
     for (const auto& i: state.inboxes[uname]) {
-        res.data = i;
-        SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
-        MessageType::INBOX, sizeof(res), 
-        reinterpret_cast<const char *>(&res));
+        strcpy(res.inbox[counter].subject, i.msg.subject);
+        strcpy(res.inbox[counter].sender, i.msg.from);
+        res.inbox[counter].read = i.msg.read;
     }
+
+    SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+    MessageType::INBOX, sizeof(res), 
+    reinterpret_cast<const char *>(&res));
+
     char temp[100];
     strcpy(temp, "done ");
     strcat(temp, std::to_string(state.inboxes[uname].size()).c_str());
@@ -826,18 +831,18 @@ std::string get_log_name(int server, int origin, int index)
     + "_" + std::to_string(index / FILE_BLOCK_SIZE);
 }
 
-void write_state()
-{
-    ptree state_tree;
-    ptree knowledge;
-    for (int i = 0; i < N_MACHINES; i++)
-    {
-        ptree row;
-        for (int j = 0; j < N_MACHINES; j++)
-        {
-            ptree col;
-            col.put("", state.knowledge[i][j]);
-        }
-        row.push_bakc(std::make_pair("", col));
-    }
-}
+// void write_state()
+// {
+//     ptree state_tree;
+//     ptree knowledge;
+//     for (int i = 0; i < N_MACHINES; i++)
+//     {
+//         ptree row;
+//         for (int j = 0; j < N_MACHINES; j++)
+//         {
+//             ptree col;
+//             col.put("", state.knowledge[i][j]);
+//         }
+//         row.push_back(std::make_pair("", col));
+//     }
+// }

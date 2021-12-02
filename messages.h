@@ -171,3 +171,24 @@ struct ServerResponse
         InboxMessage
     > data;
 };
+
+struct InboxHeader
+{
+    time_t timestamp;
+    char subject [MAX_SUBJECT];
+    char sender [MAX_USERNAME];
+    bool read;
+
+    friend bool operator<(const InboxHeader& m1, const InboxHeader& m2);
+
+};
+
+bool operator<(const InboxHeader& m1, const InboxHeader& m2) {
+    return m1.timestamp < m2.timestamp;
+}
+
+struct ServerInboxResponse
+{
+    MessageType type = MessageType::RESPONSE;
+    InboxHeader inbox[20];
+};

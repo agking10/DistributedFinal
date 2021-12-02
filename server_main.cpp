@@ -741,6 +741,7 @@ void read_log_files()
     int index;
     int current_block;
     std::shared_ptr<UserCommand> command;
+    UserCommand buf;
     std::string filename;
     std::ifstream infile;
     std::string line;
@@ -751,30 +752,25 @@ void read_log_files()
 
         filename = get_log_name(server_id, i, index);
         if (!std::filesystem::exists(filename)) continue;
-        infile.open(filename);
-
-        // Skip to first entry not applied to state
-        while (std::getline(infile, line))
-        {
-            if (*reinterpret_cast<const int*>(line.c_str()) == index) 
-            {
-                apply_command_to_state(deserialize_command(line.c_str()));
-                break;
-            }
-        }
+        infile.open(filename, std::ios::binary);
 
         // Apply all remaining files to state
-        while (std::getline(infile, line))
+        while (!inflie.eof())
         {
-            apply_command_to_state(deserialize_command(line.c_str()));
-            ++index;
+            infile.read(reinterpret_cast<char*>(&buf), sizeof(UserCommand));
+            if (buf.id.index == index) 
+            {
+                apply_command_to_state(deserialize_command(line.c_str()));
+                ++index;
+            }
+
             if (index / FILE_BLOCK_SIZE != current_block)
             {
                 infile.close();
                 if (std::filesystem::exists(get_log_name(server_id, i, index)))
                 {
                     current_block = index / FILE_BLOCK_SIZE;
-                    infile.open(get_log_name(server_id, i, index));
+                    infile.open(get_log_name(server_id, i, index), std::ios::binary);
                 }
                 else
                 {
@@ -793,25 +789,28 @@ void write_command_to_log(const std::shared_ptr<UserCommand>& command)
 
     int block = index / FILE_BLOCK_SIZE;
 
-    outfile.open(get_log_name(server_id, origin, index), std::ios_base::app);
+    outfile.open(get_log_name(server_id, origin, index), 
+        std::ios_base::app | std::ios::binary);
 
-    outfile << serialize_command(command) << "\n";
+    outfile.write(reinterpret_cast<const char*>(&(*command)), sizeof(UserCommand));
     outfile.close();
 }
 
 std::string serialize_command(const std::shared_ptr<UserCommand>& command)
 {
     std::string out;
-    out += std::to_string(command->id.index) + ",";
-    char buf[sizeof(*command) + 1];
-    memcpy(buf, reinterpret_cast<const char *>(&(command)), sizeof(*command));
-    buf[sizeof(*command)] = 0;
+    char buf[sizeof(UserCommand) + 1];
+    memcpy(buf, reinterpret_cast<const char *>(&command->id.index), 
+        sizeof(command->id.index));
+    memcpy(buf, reinterpret_cast<const char *>(&(command)), sizeof(UserCommand));
+    buf[sizeof(UserCommand)] = 0;
     out += std::string(out);
+    return out;
 }
 
 std::shared_ptr<UserCommand> deserialize_command(const char * data)
 {
-    int header_size = sizeof(int) + sizeof(char);
+    int header_size = sizeof(int);
     const UserCommand* command = reinterpret_cast<const UserCommand*>(data + header_size);
     return std::make_shared<UserCommand>(*command);
 }
@@ -821,6 +820,5 @@ std::string get_log_name(int server, int origin, int index)
     return "log_" 
     + std::to_string(server) 
     + "_" + std::to_string(origin)
-    + "_" + std::to_string(index / FILE_BLOCK_SIZE)
-    + ".txt";
+    + "_" + std::to_string(index / FILE_BLOCK_SIZE);
 }

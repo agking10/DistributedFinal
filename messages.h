@@ -47,6 +47,7 @@ struct MessageIdentifier
     int origin;
 
     friend bool operator<(const MessageIdentifier& m1, const MessageIdentifier& m2);
+    friend bool operator==(const MessageIdentifier& m1, const MessageIdentifier& m2);
 };
 
 bool operator<(const MessageIdentifier& m1, const MessageIdentifier& m2)
@@ -55,6 +56,11 @@ bool operator<(const MessageIdentifier& m1, const MessageIdentifier& m2)
         return m1.origin < m2.origin;
     else 
         return m1.index < m2.index;
+}
+
+bool operator==(const MessageIdentifier& m1, const MessageIdentifier& m2)
+{
+    return (m1.index == m2.index && m1.origin == m2.origin);
 }
 
 struct ConnectMessage
@@ -146,7 +152,15 @@ struct InboxMessage
     MessageType type = MessageType::INBOX;
     MessageIdentifier id;
     InboxEntry msg;
+
+    friend bool operator==(const InboxMessage& m1, const InboxMessage& m2);
+
 };
+
+bool operator==(const InboxMessage& m1, const InboxMessage& m2)
+{
+    return (m1.id == m2.id);
+}
 
 struct ServerResponse
 {

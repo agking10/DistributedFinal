@@ -343,12 +343,30 @@ void apply_mail_message(const std::shared_ptr<UserCommand>& command)
 
 void apply_read_message(const std::shared_ptr<UserCommand>& command)
 {
-    //TODO
+    const ReadMessage& msg = std::get<ReadMessage>(command->data);
+    bool exist = false;
+    for (std::list<InboxMessage>::iterator it = state.inboxes[msg.username].begin(); it != state.inboxes[msg.username].end(); ++it) {
+        if (it->id.index == msg.id.index && it->id.origin == msg.id.origin ) 
+            exist = true;
+            it->msg.read = true;
+    }
+    if (!exist) {
+        state.pending_read.insert(msg.id);
+    }
 }
 
 void apply_delete_message(const std::shared_ptr<UserCommand>& command)
 {
-
+    const DeleteMessage& msg = std::get<DeleteMessage>(command->data);
+    bool exist = false;
+    for (const auto& i: state.inboxes[msg.username]) {
+        if (i.id == msg.id) 
+            exist = true;
+            state.inboxes[msg.username].remove(i);
+    }
+    if (!exist) {
+        state.pending_delete.insert(msg.id);
+    }
 }
 
 void process_read_command()
@@ -370,9 +388,9 @@ void broadcast_command(const std::shared_ptr<UserCommand>& command)
 
 void send_inbox_to_client()
 {
+    //TODO consolidate all emails before sending (slack message)
     GetInboxMessage *msg = reinterpret_cast<GetInboxMessage*>(mess);
     std::string uname = msg->username;
-    //TODO: send user's inbox to sender's group
     std::string client_name = client_inbox_from_id(msg->session_id);
     ServerResponse res;
     res.seq_num = msg->seq_num;

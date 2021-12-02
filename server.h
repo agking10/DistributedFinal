@@ -75,6 +75,11 @@ std::string get_log_name(int, int, int);
 ptree ptree_from_identifier(const MessageIdentifier&);
 ptree inbox_to_ptree(const std::pair<std::string, std::list<InboxMessage>>&);
 ptree ptree_from_inbox_message(const InboxMessage&);
+MessageIdentifier identifier_from_ptree(const ptree&);
+
+void extract_inboxes_to_state(const ptree&);
+std::list<InboxMessage> get_inbox_list_from_ptree(const ptree&);
+InboxMessage inbox_message_from_ptree(const ptree&);
 
 struct State
 {

@@ -46,6 +46,8 @@ static int start_index[N_MACHINES];         // Keep track of the first message
                                             // we need to send for servers in need_to_send
 static bool synchronizing = false;
 
+static std::string state_file;
+
 static State state;
 
 int main(int argc, char * argv[])
@@ -107,8 +109,9 @@ void init()
 {
     int ret;
 
+    state_file = "state.json";
+
     load_state();
-    write_state();
 
     sprintf(spread_name, std::to_string(PORT).c_str());
     sprintf(user, std::to_string(server_index).c_str());
@@ -735,7 +738,38 @@ void load_state()
 
 void read_state_file()
 {
-    //TODO
+    ptree state_tree; 
+    read_json(state_file, state_tree);
+    read_2d_ptree_array(state.knowledge, N_MACHINES, N_MACHINES, 
+        state_tree.get_child("knowledge"));
+    read_1d_ptree_array(state.safe_delivered, N_MACHINES, 
+        state_tree.get_child("safe_delivered"));
+    read_1d_ptree_array(state.applied_to_state, N_MACHINES, 
+        state_tree.get_child("applied_to_state"));
+    rehydrate_set_from_ptree(state.pending_read, identifier_from_ptree, 
+        state_tree.get_child("pending_read"));
+    rehydrate_set_from_ptree(state.pending_delete, identifier_from_ptree, 
+        state_tree.get_child("pending_delete"));
+    rehydrate_set_from_ptree(state.deleted, identifier_from_ptree, 
+        state_tree.get_child("deleted"));
+    extract_inboxes_to_state(state_tree.get_child("inboxes"));
+}
+
+void extract_inboxes_to_state(const ptree& pt)
+{
+    for (const auto& inbox : pt)
+    {
+        state.inboxes[inbox.first] = get_inbox_list_from_ptree(inbox.second);
+    }
+}
+
+std::list<InboxMessage> get_inbox_list_from_ptree(const ptree& pt)
+{
+    std::list<InboxMessage> inbox;
+    for (const auto& child : pt)
+    {
+        inbox.push_back(inbox_message_from_ptree(child.second));
+    }
 }
 
 void read_log_files()
@@ -798,33 +832,6 @@ void write_command_to_log(const std::shared_ptr<UserCommand>& command)
     outfile.close();
 }
 
-std::string serialize_command(const std::shared_ptr<UserCommand>& command)
-{
-    std::string out;
-    char buf[sizeof(UserCommand) + 1];
-    memcpy(buf, reinterpret_cast<const char *>(&command->id.index), 
-        sizeof(command->id.index));
-    memcpy(buf, reinterpret_cast<const char *>(&(command)), sizeof(UserCommand));
-    buf[sizeof(UserCommand)] = 0;
-    out += std::string(out);
-    return out;
-}
-
-std::shared_ptr<UserCommand> deserialize_command(const char * data)
-{
-    int header_size = sizeof(int);
-    const UserCommand* command = reinterpret_cast<const UserCommand*>(data + header_size);
-    return std::make_shared<UserCommand>(*command);
-}
-
-std::string get_log_name(int server, int origin, int index)
-{
-    return "log_" 
-    + std::to_string(server) 
-    + "_" + std::to_string(origin)
-    + "_" + std::to_string(index / FILE_BLOCK_SIZE);
-}
-
 void write_state()
 {
     ptree state_tree;
@@ -845,7 +852,15 @@ void write_state()
     state_tree.push_back(std::make_pair("inboxes", 
         generate_iterable_ptree(state.inboxes, inbox_to_ptree)));
     
-    write_json("state.json", state_tree);
+    write_json(state_file, state_tree);
+}
+
+std::string get_log_name(int server, int origin, int index)
+{
+    return "log_" 
+    + std::to_string(server) 
+    + "_" + std::to_string(origin)
+    + "_" + std::to_string(index / FILE_BLOCK_SIZE);
 }
 
 ptree ptree_from_identifier(const MessageIdentifier& id)
@@ -856,11 +871,18 @@ ptree ptree_from_identifier(const MessageIdentifier& id)
     return output;
 }
 
+MessageIdentifier identifier_from_ptree(const ptree& pt)
+{
+    MessageIdentifier id;
+    id.origin = pt.get_child("origin").get_value<int>();
+    id.index = pt.get_child("index").get_value<int>();
+    return id;
+}
+
 ptree inbox_to_ptree(const std::pair<std::string, std::list<InboxMessage>>& inbox)
 {
     ptree output;
-    output.put("username", inbox.first);
-    output.push_back(std::make_pair("inbox", 
+    output.push_back(std::make_pair(inbox.first, 
         generate_iterable_ptree(inbox.second, ptree_from_inbox_message)));
     return output;
 }
@@ -875,9 +897,19 @@ ptree ptree_from_inbox_message(const InboxMessage& message)
     output.put("from", message.msg.from);
     output.put("subject", message.msg.subject);
     output.put("message", message.msg.message);
+    return output;
 }
 
-ptree generate_applied_to_state_ptree();
-ptree generate_inboxes_ptree();
-ptree generate_inbox_message_ptree();
-ptree generate_id_set_ptree();
+InboxMessage inbox_message_from_ptree(const ptree& pt)
+{
+    InboxMessage result;
+    result.id = identifier_from_ptree(pt.get_child("id"));
+    result.msg.date_sent = pt.get<time_t>("date_sent");
+    strcpy(result.msg.from, pt.get<std::string>("from").c_str());
+    strcpy(result.msg.to, pt.get<std::string>("to").c_str());
+    strcpy(result.msg.subject, pt.get<std::string>("subject").c_str());
+    strcpy(result.msg.message, pt.get<std::string>("message").c_str());
+    result.msg.read = pt.get<bool>("read");
+    return result;
+}
+

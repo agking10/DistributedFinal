@@ -113,7 +113,7 @@ void init()
 {
     int ret;
 
-    state_file = "state.json";
+    state_file = "state_" + std::to_string(server_id) + ".json";
 
     load_state();
 

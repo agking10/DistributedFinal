@@ -507,9 +507,11 @@ void send_component_to_client()
 
     ServerResponse res;
     ComponentMessage comp;
-    comp.num_servers = num_members_;
-    for (int j = 0; j < num_members_; j++) {
-        strcpy(comp.names[j], members[j]);
+    comp.num_servers = n_synching;
+    for (int j = 0; j < 5; j++) {
+        if (servers_present[j]) {
+            strcpy(comp.names[j], synch_members[j]);
+        }
     }
     res.data = comp;
     SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
@@ -567,6 +569,8 @@ void copy_group_members()
     for (int i = 0; i < n_connected; i++)
     {
         strcpy(synch_members[i], target_groups[i]);
+        printf("copying: ");
+        printf("%s\n", target_groups[i]);
     }
 }
 

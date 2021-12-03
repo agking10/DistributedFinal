@@ -188,7 +188,11 @@ void handle_keyboard_in(int, int, void*)
             }
             break;
         case 'v':
-            //TODO
+            require(
+                connected,
+                "Must be connected to a server to view components.",
+                get_component
+            );
             break;
         case 'h':
             print_menu();
@@ -271,7 +275,7 @@ void process_membership_message(const char * sender,
 void process_server_response(int16_t mess_type, const char * mess)
 {
     if (!blocking) return;
-
+    printf("in process_server_response\n");
     if (mess_type == MessageType::ACK)
     {
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
@@ -296,6 +300,14 @@ void process_server_response(int16_t mess_type, const char * mess)
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
         InboxMessage msg = std::get<InboxMessage>(resp->data);
         printf("From: %s\n Subject: %s\n%s", msg.msg.from, msg.msg.subject, msg.msg.message);
+    } 
+    else if (mess_type == MessageType::COMPONENT) {
+        const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
+        ComponentMessage msg = std::get<ComponentMessage>(resp->data);
+        printf("Components: \n");
+        for (int j = 0; j < msg.num_servers; j++) {
+            printf("%s\n", msg.names[j]);
+        }
     }
 }
 
@@ -451,15 +463,28 @@ void delete_email(int index) {
     DeleteMessage msg;
     msg.session_id = session_id;
     strcpy(msg.username, username.c_str());
-    msg.id = find_id_using_index(index);
-    int indx = 0;
+    msg.id = find_id_using_index(index - 1);
     
+    char temp[100];
+    strcpy(temp, "");
+    strcat(temp, std::to_string(msg.id.index).c_str());
+    strcat(temp, std::to_string(msg.id.origin).c_str());
+    printf("id: %s", temp);
+
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 
         MessageType::DELETE,
         sizeof(msg),
         reinterpret_cast<const char*>(&msg)
     );
+
+    blocking = true;
+    while (blocking && connected)
+    {
+        handle_spread_message(0, 0, nullptr);
+    }
+    blocking = false;
+    listed = true;
 }
 
 void read_email(int index) {
@@ -476,11 +501,30 @@ void read_email(int index) {
     strcpy(temp, "");
     strcat(temp, std::to_string(msg.id.index).c_str());
     strcat(temp, std::to_string(msg.id.origin).c_str());
-    int indx = 0;
+    printf("id: %s", temp);
     
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 
         MessageType::READ,
+        sizeof(msg),
+        reinterpret_cast<const char*>(&msg)
+    );
+
+    blocking = true;
+    while (blocking && connected)
+    {
+        handle_spread_message(0, 0, nullptr);
+    }
+    blocking = false;
+}
+
+void get_component() {
+    GetComponentMessage msg;
+    msg.session_id = session_id;
+    printf("here1\n");
+    SP_multicast(mbox, AGREED_MESS,
+        connected_server_inbox.c_str(),
+        MessageType::SHOW_COMPONENT,
         sizeof(msg),
         reinterpret_cast<const char*>(&msg)
     );

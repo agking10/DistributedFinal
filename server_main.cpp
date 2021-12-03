@@ -14,6 +14,7 @@ static char user[80];
 static char spread_name[80];
 static char private_group[MAX_GROUP_NAME];
 static char mess[MAX_MESS_LEN];
+static char backend_mess[MAX_MESS_LEN];
 static char sender[MAX_GROUP_NAME];
 static char target_groups[MAX_MEMBERS][MAX_GROUP_NAME];
 static int n_connected;
@@ -40,6 +41,9 @@ static int n_synching;
 static bool received[N_MACHINES];
 static char synch_members[MAX_MEMBERS][MAX_GROUP_NAME];
 static bool servers_present[N_MACHINES];
+vs_set_info vssets[MAX_VSSETS];
+int num_members_;
+char members[5][MAX_GROUP_NAME];
 static bool need_to_send[N_MACHINES];       // Keep track of which servers' 
                                             //messages we need to send during synch
 static int start_index[N_MACHINES];         // Keep track of the first message
@@ -184,9 +188,10 @@ void process_data_message()
             case (MessageType::SHOW_INBOX):
                 send_inbox_to_client();
                 break;
-            case (MessageType::SHOW_COMPONENT):
+            case (MessageType::SHOW_COMPONENT): {
                 send_component_to_client();
                 break;
+            }
             default:
                 // Error check here?
                 break;
@@ -210,8 +215,20 @@ void send_ack(uint32_t session_id, const char * msg)
 void process_membership_message()
 {
     int ret;
-    
+    // http://www.spread.org/docs/spread_docs_4/docs/user.c following this example still bugged
     if (!Is_reg_memb_mess(service_type)) return;
+    strcpy(backend_mess, mess);
+    unsigned int my_vsset_index;
+    int num_vs_sets = SP_get_vs_sets_info( mess, &vssets[0], MAX_VSSETS, &my_vsset_index);
+    for(int i = 0; i < num_vs_sets; i++ )
+    {
+        printf("%s VS set %d has %u members:\n",
+            (i  == my_vsset_index) ?
+            ("LOCAL") : ("OTHER"), i, vssets[i].num_members );
+        ret = SP_get_vs_set_members(mess, &vssets[i], members, MAX_MEMBERS);
+        for(int j = 0; j < vssets[i].num_members; j++ )
+            printf("\t%s\n", members[j] );
+    }
 
     ret = SP_get_memb_info(mess, service_type, &memb_info);
     if (ret < 0) 
@@ -399,10 +416,22 @@ void apply_delete_message(const std::shared_ptr<UserCommand>& command)
     }
     if (!exist) {
         state.pending_delete.insert(msg.id);
+        char temp[100];
+        strcpy(temp, "could not find to delete: ");
+        strcat(temp, std::to_string(msg.id.origin).c_str());
+        strcat(temp, std::to_string(msg.id.index).c_str());
+        strcat(temp, "first was: ");
+        strcat(temp, std::to_string((*(state.inboxes[msg.username].begin())).id.origin).c_str());
+        strcat(temp, std::to_string((*(state.inboxes[msg.username].begin())).id.index).c_str());
+        send_ack(msg.session_id, temp);
     } else {
-        InboxMessage temp;
-        temp.id = msg.id;
-        state.inboxes[msg.username].remove(temp);
+        InboxMessage tempmsg;
+        tempmsg.id = msg.id;
+        state.inboxes[msg.username].remove(tempmsg);
+        char temp[100];
+        strcpy(temp, "success_delete ");
+        strcat(temp, std::to_string(state.inboxes[std::string(msg.username)].size()).c_str());
+        send_ack(msg.session_id, temp);
     }
 }
 
@@ -426,6 +455,8 @@ void send_inbox_to_client()
         strcpy(res.inbox[counter].subject, i.msg.subject);
         strcpy(res.inbox[counter].sender, i.msg.from);
         res.inbox[counter].read = i.msg.read;
+        res.inbox[counter].id.index = i.id.index;
+        res.inbox[counter].id.origin = i.id.origin;
         if (counter >= INBOX_LIMIT) break;
         counter++;
     }
@@ -460,9 +491,9 @@ void send_mail_to_client()
     }
     if (!exist) {
         char temp[100];
-        strcpy(temp, "done ");
-                strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.index).c_str());
-                strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.origin).c_str());
+        strcpy(temp, "couldnt find ");
+        strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.origin).c_str());
+        strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.index).c_str());
         send_ack(msg->session_id, temp);
         
         //send_ack(msg->session_id, "there was a problem reading this mail");
@@ -471,7 +502,24 @@ void send_mail_to_client()
 
 void send_component_to_client()
 {
-    //TODO: send component to sender's group
+    GetComponentMessage *msg = reinterpret_cast<GetComponentMessage*>(mess);
+    std::string client_name = client_inbox_from_id(msg->session_id);
+
+    ServerResponse res;
+    ComponentMessage comp;
+    comp.num_servers = num_members_;
+    for (int j = 0; j < num_members_; j++) {
+        strcpy(comp.names[j], members[j]);
+    }
+    res.data = comp;
+    SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+            MessageType::COMPONENT, sizeof(res), 
+            reinterpret_cast<const char *>(&res));
+    char temp [100];
+    strcpy(temp, "total num of servers: ");
+    strcat(temp, std::to_string(comp.num_servers).c_str());
+    send_ack(msg->session_id, temp);
+    printf("hereeee \n");
 }
 
 void process_connection_request()

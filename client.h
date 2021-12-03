@@ -28,3 +28,4 @@ void print_menu();
 MessageIdentifier find_id_using_index(int index);
 void read_email(int index);
 void delete_email(int index);
+void get_component();

@@ -24,6 +24,7 @@ enum MessageType
 	ACK,
 	INBOX,
     RESPONSE,
+    COMPONENT,
 
     // Server to server messages
 	COMMAND,
@@ -106,6 +107,12 @@ struct GetInboxMessage
     char username[MAX_USERNAME];
 };
 
+struct GetComponentMessage 
+{
+    MessageType type = MessageType::SHOW_COMPONENT;
+    uint32_t session_id;
+};
+
 struct UserCommand
 {
     MessageIdentifier id;
@@ -154,7 +161,12 @@ struct InboxMessage
     InboxEntry msg;
 
     friend bool operator==(const InboxMessage& m1, const InboxMessage& m2);
+};
 
+struct ComponentMessage 
+{
+    int num_servers;
+    char names [5][MAX_GROUP_NAME];
 };
 
 bool operator==(const InboxMessage& m1, const InboxMessage& m2)
@@ -168,7 +180,8 @@ struct ServerResponse
     int seq_num;
     std::variant<
         AckMessage,
-        InboxMessage
+        InboxMessage,
+        ComponentMessage
     > data;
 };
 

@@ -14,6 +14,7 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #define FILE_BLOCK_SIZE 1000
+#define MAX_VSSETS 100
 
 using boost::property_tree::ptree;
 

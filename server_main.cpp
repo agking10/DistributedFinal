@@ -729,14 +729,14 @@ void count_my_synch_servers()
         for (int j = 0; j < N_MACHINES; j++) // Loop over servers in this group
         {
             if (!servers_present[j]) continue; // Skip if this server is not in the group
-            if (state.knowledge[i][j] > max_message)
+            if (state.knowledge[j][i] > max_message)
             {
                 max_server = j;
-                max_message = state.knowledge[i][j];
+                max_message = state.knowledge[j][i];
             }
-            if (state.knowledge[i][j] < min_message)
+            if (state.knowledge[j][i] < min_message)
             {
-                min_message = state.knowledge[i][j];
+                min_message = state.knowledge[j][i];
             }
         }
         if (max_server == server_index)

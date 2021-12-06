@@ -13,9 +13,10 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
-#define FILE_BLOCK_SIZE 1000
+#define FILE_BLOCK_SIZE 2
 #define MAX_VSSETS 100
-#define MAX_UPDATES_BW_SERIALIZE 3
+#define MAX_UPDATES_BW_SERIALIZE 2
+#define MAX_CHANGES_BW_GARBAGE 3
 
 using boost::property_tree::ptree;
 
@@ -48,6 +49,11 @@ void stash_command();
 bool wait_for_everyone();
 void clear_synch_arrays();
 void update_knowledge();
+void collect_garbage();
+void erase_queue_up_to(int, int);
+bool different_block(int, int);
+void delete_file_block(int, int);
+void delete_file_block_by_index(int, int);
 bool sender_in_group();
 void mark_knowledge_as_received();
 void send_my_messages();
@@ -68,7 +74,13 @@ bool connection_exists(uint32_t);
 bool is_server_memb_mess();
 
 void read_state_file();
+void read_inbox_state();
+void read_log_state();
+void repopulate_local_data();
 void read_log_files();
+
+void write_inbox_state();
+void write_log_state();
 
 std::multiset<InboxMessage>::iterator
 find_mail_by_id(const MessageIdentifier&, const std::string&);
@@ -76,10 +88,12 @@ find_mail_by_id(const MessageIdentifier&, const std::string&);
 void write_command_to_log(const std::shared_ptr<UserCommand>&);
 std::string serialize_command(const std::shared_ptr<UserCommand>&);
 std::shared_ptr<UserCommand> deserialize_command(const char *);
-std::string get_log_name(int, int, int);
+std::string get_log_name(int, int);
 
 ptree ptree_from_identifier(const MessageIdentifier&);
 ptree inbox_to_ptree(const std::pair<std::string, std::multiset<InboxMessage>>&);
+ptree write_inboxes_to_ptree();
+ptree ptree_from_inbox(const std::multiset<InboxMessage>&);
 ptree ptree_from_inbox_message(const InboxMessage&);
 MessageIdentifier identifier_from_ptree(const ptree&);
 
@@ -95,6 +109,4 @@ struct State
     std::unordered_map<std::string, std::multiset<InboxMessage>> inboxes;
     std::set<MessageIdentifier> pending_delete;
     std::set<MessageIdentifier> pending_read;
-    std::set<MessageIdentifier> deleted;
-    std::set<int> test;
 };

@@ -15,7 +15,7 @@
 
 #define FILE_BLOCK_SIZE 2
 #define MAX_VSSETS 100
-#define MAX_UPDATES_BW_SERIALIZE 2
+#define MAX_UPDATES_BW_SERIALIZE 0
 #define MAX_CHANGES_BW_GARBAGE 3
 
 using boost::property_tree::ptree;
@@ -38,6 +38,7 @@ void process_connection_request();
 void process_command_message(bool queue = false);
 void apply_new_command(const std::shared_ptr<UserCommand>&);
 void apply_command_to_state(const std::shared_ptr<UserCommand>&);
+void add_command_to_queue(const std::shared_ptr<UserCommand>&);
 void broadcast_command(const std::shared_ptr<UserCommand>&);
 void apply_mail_message(const std::shared_ptr<UserCommand>&);
 void apply_read_message(const std::shared_ptr<UserCommand>&);
@@ -93,6 +94,8 @@ std::string get_log_name(int, int);
 ptree ptree_from_identifier(const MessageIdentifier&);
 ptree inbox_to_ptree(const std::pair<std::string, std::multiset<InboxMessage>>&);
 ptree write_inboxes_to_ptree();
+ptree write_pending_delete_to_ptree();
+ptree write_pending_read_to_ptree();
 ptree ptree_from_inbox(const std::multiset<InboxMessage>&);
 ptree ptree_from_inbox_message(const InboxMessage&);
 MessageIdentifier identifier_from_ptree(const ptree&);

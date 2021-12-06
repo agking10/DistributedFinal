@@ -7,7 +7,7 @@
 #define MAX_USERNAME 30
 #define MAX_SUBJECT 100
 #define EMAIL_LEN 1000
-#define N_MACHINES 2
+#define N_MACHINES 3
 #define MAX_MEMBERS 100
 #define INBOX_LIMIT 20
 enum MessageType

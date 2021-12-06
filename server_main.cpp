@@ -338,9 +338,8 @@ void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
 {
     ++state.knowledge[server_index][command->id.origin];
     ++state.applied_to_state[command->id.origin];
-    ++updates_since_serialize;
 
-    command_queue[command->id.origin].push_back(command);   
+    add_command_to_queue(command);
 
     if (std::holds_alternative<MailMessage>(command->data))
     {
@@ -355,11 +354,18 @@ void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
         apply_delete_message(command);
     }
 
+    ++updates_since_serialize;
     if (updates_since_serialize >= MAX_UPDATES_BW_SERIALIZE)
     {
-        write_inbox_state();
+        write_state();
+        broadcast_knowledge();
         updates_since_serialize = 0;
     }
+}
+
+void add_command_to_queue(const std::shared_ptr<UserCommand>& command)
+{
+    command_queue[command->id.origin].push_back(command);   
 }
 
 void apply_mail_message(const std::shared_ptr<UserCommand>& command)
@@ -374,6 +380,12 @@ void apply_mail_message(const std::shared_ptr<UserCommand>& command)
     new_mail.msg.date_sent = command->timestamp;
     new_mail.id = command->id;
     new_mail.msg.read = false;
+
+    if (state.pending_delete.find(command->id) != state.pending_delete.end())
+    {
+        state.pending_delete.erase(command->id);
+        return;
+    }
 
     if (state.pending_read.find(command->id) != state.pending_read.end())
     {
@@ -419,6 +431,8 @@ void apply_delete_message(const std::shared_ptr<UserCommand>& command)
     
     if (!exist) {
         state.pending_delete.insert(msg.id);
+        printf("addidng to pendnig delete\n");
+        fflush(0);
         char temp[100];
         strcpy(temp, "could not find to delete: ");
         strcat(temp, std::to_string(msg.id.origin).c_str());
@@ -706,7 +720,7 @@ void erase_queue_up_to(int origin, int index)
     {
         if (different_block(origin, queue.front()->id.index))
         {
-            write_log_state();
+            write_state();
             for (int i = current_block[origin]; 
                 i < queue.front()->id.index / FILE_BLOCK_SIZE; i++)
             {
@@ -958,7 +972,9 @@ void read_inbox_state()
 void read_log_state()
 {
     ptree state_tree;
+
     std::string filename = log_state_file;
+    read_json(log_state_file, state_tree);
     read_1d_ptree_array(state.safe_delivered, N_MACHINES, 
         state_tree.get_child("safe_delivered"));
 }
@@ -1000,7 +1016,7 @@ void read_log_files()
     std::string line;
     for (int i = 0; i < N_MACHINES; i++)
     {
-        index = state.applied_to_state[i] + 1;
+        index = state.safe_delivered[i] + 1;
         current_block = index / FILE_BLOCK_SIZE;
 
         filename = get_log_name(i, index);
@@ -1013,7 +1029,14 @@ void read_log_files()
             infile.read(reinterpret_cast<char*>(&buf), sizeof(UserCommand));
             if (buf.id.index == index) 
             {
-                apply_command_to_state(std::make_shared<UserCommand>(buf));
+                if (index > state.applied_to_state[i])
+                {
+                    apply_command_to_state(std::make_shared<UserCommand>(buf));
+                }
+                else
+                {
+                    add_command_to_queue(std::make_shared<UserCommand>(buf));
+                }
                 ++index;
             }
 
@@ -1064,9 +1087,9 @@ void write_inbox_state()
         generate_1d_ptree(state.applied_to_state, N_MACHINES)));
 
     state_tree.push_back(std::make_pair("pending_delete",
-        generate_iterable_ptree(state.pending_delete, ptree_from_identifier)));
+        write_pending_delete_to_ptree()));
     state_tree.push_back(std::make_pair("pending_read",
-        generate_iterable_ptree(state.pending_read, ptree_from_identifier)));
+        write_pending_read_to_ptree()));
 
     state_tree.push_back(std::make_pair("inboxes", write_inboxes_to_ptree()));
 
@@ -1084,6 +1107,25 @@ ptree write_inboxes_to_ptree()
     return inbox_tree;
 }
 
+ptree write_pending_delete_to_ptree()
+{
+    ptree delete_tree;
+    for (const auto& id : state.pending_delete)
+    {
+        delete_tree.push_back(std::make_pair("", ptree_from_identifier(id)));
+    }
+    return delete_tree;
+}
+
+ptree write_pending_read_to_ptree()
+{
+    ptree read_tree;
+    for (const auto& id : state.pending_read)
+    {
+        read_tree.push_back(std::make_pair("", ptree_from_identifier(id)));
+    }
+    return read_tree;
+}
 ptree ptree_from_inbox(const std::multiset<InboxMessage>& inbox)
 {
     ptree inbox_tree;

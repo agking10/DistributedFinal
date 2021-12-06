@@ -15,6 +15,7 @@
 
 #define FILE_BLOCK_SIZE 1000
 #define MAX_VSSETS 100
+#define MAX_UPDATES_BW_SERIALIZE 3
 
 using boost::property_tree::ptree;
 
@@ -69,18 +70,21 @@ bool is_server_memb_mess();
 void read_state_file();
 void read_log_files();
 
+std::multiset<InboxMessage>::iterator
+find_mail_by_id(const MessageIdentifier&, const std::string&);
+
 void write_command_to_log(const std::shared_ptr<UserCommand>&);
 std::string serialize_command(const std::shared_ptr<UserCommand>&);
 std::shared_ptr<UserCommand> deserialize_command(const char *);
 std::string get_log_name(int, int, int);
 
 ptree ptree_from_identifier(const MessageIdentifier&);
-ptree inbox_to_ptree(const std::pair<std::string, std::list<InboxMessage>>&);
+ptree inbox_to_ptree(const std::pair<std::string, std::multiset<InboxMessage>>&);
 ptree ptree_from_inbox_message(const InboxMessage&);
 MessageIdentifier identifier_from_ptree(const ptree&);
 
 void extract_inboxes_to_state(const ptree&);
-std::list<InboxMessage> get_inbox_list_from_ptree(const ptree&);
+std::multiset<InboxMessage> get_inbox_list_from_ptree(const ptree&);
 InboxMessage inbox_message_from_ptree(const ptree&);
 
 struct State
@@ -88,7 +92,7 @@ struct State
     int knowledge[N_MACHINES][N_MACHINES];
     int safe_delivered[N_MACHINES];
     int applied_to_state[N_MACHINES];
-    std::unordered_map<std::string, std::list<InboxMessage>> inboxes;
+    std::unordered_map<std::string, std::multiset<InboxMessage>> inboxes;
     std::set<MessageIdentifier> pending_delete;
     std::set<MessageIdentifier> pending_read;
     std::set<MessageIdentifier> deleted;

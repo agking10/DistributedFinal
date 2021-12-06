@@ -104,3 +104,16 @@ void rehydrate_set_from_ptree(std::set<T>& set, func f, const ptree& pt)
         set.insert(f(child.second));
     }
 }
+
+// template <typename K, typename T>
+// typename T::iterator linear_search(K id, T container)
+// {
+//     for (auto it = container.begin(); it != container.end(); ++it)
+//     {
+//         if (*it == id)
+//         {
+//             return it;
+//         }
+//     }
+//     return container.end();
+// }

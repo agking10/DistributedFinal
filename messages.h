@@ -161,6 +161,8 @@ struct InboxMessage
     InboxEntry msg;
 
     friend bool operator==(const InboxMessage& m1, const InboxMessage& m2);
+    friend bool operator==(const InboxMessage& m, const MessageIdentifier id);
+    friend bool operator<(const InboxMessage& m1, const InboxMessage& m2);
 };
 
 struct ComponentMessage 
@@ -171,7 +173,17 @@ struct ComponentMessage
 
 bool operator==(const InboxMessage& m1, const InboxMessage& m2)
 {
-    return (m1.id == m2.id);
+    return m1.id == m2.id;
+}
+
+bool operator==(const InboxMessage& m, const MessageIdentifier id)
+{
+    return m.id == id;
+}
+
+bool operator<(const InboxMessage& m1, const InboxMessage& m2)
+{
+    return m1.msg.date_sent < m2.msg.date_sent;
 }
 
 struct ServerResponse

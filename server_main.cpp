@@ -23,6 +23,7 @@ static int16_t mess_type;
 static membership_info  memb_info;
 static int endian_mismatch;
 static sp_time test_timeout;
+static int updates_since_serialize = 0;
 
 static std::list<std::shared_ptr<UserCommand>> synch_queue;
 static std::unordered_set<std::string> client_connections;
@@ -147,7 +148,7 @@ void init()
     {
         SP_error(ret);
         goodbye();
-    } 
+    }
 }
 
 void process_data_message()
@@ -291,7 +292,7 @@ void process_new_email()
     mail_command->id.index = state.knowledge[server_index][server_index] + 1;
 
     mail_command->data = *reinterpret_cast<MailMessage*>(mess);
-    mail_command->timestamp = std::time(0);
+    mail_command->timestamp = std::time(nullptr);
 
     apply_new_command(mail_command);
 }
@@ -354,6 +355,9 @@ void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
     {
         apply_delete_message(command);
     }
+
+    if (updates_since_serialize > MAX_UPDATES_BW_SERIALIZE)
+        write_state();
 }
 
 void apply_mail_message(const std::shared_ptr<UserCommand>& command)
@@ -382,7 +386,7 @@ void apply_mail_message(const std::shared_ptr<UserCommand>& command)
         state.pending_read.erase(command->id);
     }
 
-    state.inboxes[std::string(new_mail.msg.to)].push_back(new_mail);
+    state.inboxes[std::string(new_mail.msg.to)].insert(new_mail);
     
     char temp[100];
     strcpy(temp, "done1 ");
@@ -394,10 +398,14 @@ void apply_read_message(const std::shared_ptr<UserCommand>& command)
 {
     const ReadMessage& msg = std::get<ReadMessage>(command->data);
     bool exist = false;
-    for (std::list<InboxMessage>::iterator it = state.inboxes[msg.username].begin(); it != state.inboxes[msg.username].end(); ++it) {
-        if (it->id == msg.id) 
-            exist = true;
-            it->msg.read = true;
+    auto it = find_mail_by_id(msg.id, msg.username);
+    if (it != state.inboxes[msg.username].end())
+    {
+        exist = true;
+        InboxMessage new_msg = *it;
+        state.inboxes[msg.username].erase(*it);
+        new_msg.msg.read = true;
+        state.inboxes[msg.username].insert(new_msg);
     }
     if (!exist) {
         state.pending_read.insert(msg.id);
@@ -410,10 +418,10 @@ void apply_delete_message(const std::shared_ptr<UserCommand>& command)
     const DeleteMessage& msg = std::get<DeleteMessage>(command->data);
     bool exist = false;
 
-    for (const auto& i: state.inboxes[msg.username]) {
-        if (i.id == msg.id) 
-            exist = true;
-    }
+    auto it = find_mail_by_id(msg.id, msg.username);
+    if (it != state.inboxes[msg.username].end())
+        exist = true;
+    
     if (!exist) {
         state.pending_delete.insert(msg.id);
         char temp[100];
@@ -425,9 +433,7 @@ void apply_delete_message(const std::shared_ptr<UserCommand>& command)
         strcat(temp, std::to_string((*(state.inboxes[msg.username].begin())).id.index).c_str());
         send_ack(msg.session_id, temp);
     } else {
-        InboxMessage tempmsg;
-        tempmsg.id = msg.id;
-        state.inboxes[msg.username].remove(tempmsg);
+        state.inboxes[msg.username].erase(*it);
         char temp[100];
         strcpy(temp, "success_delete ");
         strcat(temp, std::to_string(state.inboxes[std::string(msg.username)].size()).c_str());
@@ -839,6 +845,19 @@ bool is_server_memb_mess()
     return strcmp(sender, server_group.c_str()) == 0;
 }
 
+std::multiset<InboxMessage>::iterator
+find_mail_by_id(const MessageIdentifier& id, const std::string& name)
+{
+    for (auto it = state.inboxes[name].begin(); it != state.inboxes[name].end(); it++)
+    {
+        if (*it == id)
+        {
+            return it;
+        }
+    }
+    return state.inboxes[name].end();
+}
+
 void load_state()
 {
     read_state_file();
@@ -882,12 +901,12 @@ void extract_inboxes_to_state(const ptree& pt)
     }
 }
 
-std::list<InboxMessage> get_inbox_list_from_ptree(const ptree& pt)
+std::multiset<InboxMessage> get_inbox_list_from_ptree(const ptree& pt)
 {
-    std::list<InboxMessage> inbox;
+    std::multiset<InboxMessage> inbox;
     for (const auto& child : pt)
     {
-        inbox.push_back(inbox_message_from_ptree(child.second));
+        inbox.insert(inbox_message_from_ptree(child.second));
     }
 }
 
@@ -998,7 +1017,7 @@ MessageIdentifier identifier_from_ptree(const ptree& pt)
     return id;
 }
 
-ptree inbox_to_ptree(const std::pair<std::string, std::list<InboxMessage>>& inbox)
+ptree inbox_to_ptree(const std::pair<std::string, std::multiset<InboxMessage>>& inbox)
 {
     ptree output;
     output.push_back(std::make_pair(inbox.first, 

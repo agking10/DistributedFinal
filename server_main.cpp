@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_set>
+#include <vector>
 #include <limits.h>
 #include <ctime>
 
@@ -24,6 +25,7 @@ static membership_info  memb_info;
 static int endian_mismatch;
 static sp_time test_timeout;
 static int updates_since_serialize = 0;
+static int changes_since_garbage_collection = 0;
 
 static std::list<std::shared_ptr<UserCommand>> synch_queue;
 static std::unordered_set<std::string> client_connections;
@@ -42,6 +44,7 @@ static int n_synching;
 static bool received[N_MACHINES];
 static char synch_members[MAX_MEMBERS][MAX_GROUP_NAME];
 static bool servers_present[N_MACHINES];
+static std::vector<int> current_block(N_MACHINES, 0);
 vs_set_info vssets[MAX_VSSETS];
 int num_members_;
 char members[5][MAX_GROUP_NAME];
@@ -52,6 +55,8 @@ static int start_index[N_MACHINES];         // Keep track of the first message
 static bool synchronizing = false;
 
 static std::string state_file;
+static std::string log_state_file;
+static std::string inbox_state_file;
 
 static State state;
 
@@ -115,6 +120,8 @@ void init()
     int ret;
 
     state_file = "state_" + std::to_string(server_id) + ".json";
+    log_state_file = "log_" + state_file;
+    inbox_state_file = "inbox_" + state_file;
 
     load_state();
 
@@ -242,7 +249,6 @@ void process_membership_message()
     if (!synchronizing && is_server_memb_mess())
     {
         synchronize();
-        //garbage_collection();
         apply_queued_updates();
     }
     else if (client_connections.find(std::string(sender)) != client_connections.end())
@@ -338,8 +344,9 @@ void apply_new_command(const std::shared_ptr<UserCommand>& command)
 
 void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
 {
-    state.knowledge[server_index][command->id.origin]++;
-    state.applied_to_state[command->id.origin]++;
+    ++state.knowledge[server_index][command->id.origin];
+    ++state.applied_to_state[command->id.origin];
+    ++updates_since_serialize;
 
     command_queue[command->id.origin].push_back(command);   
 
@@ -356,20 +363,16 @@ void apply_command_to_state(const std::shared_ptr<UserCommand>& command)
         apply_delete_message(command);
     }
 
-    if (updates_since_serialize > MAX_UPDATES_BW_SERIALIZE)
-        write_state();
+    if (updates_since_serialize >= MAX_UPDATES_BW_SERIALIZE)
+    {
+        write_inbox_state();
+        updates_since_serialize = 0;
+    }
 }
 
 void apply_mail_message(const std::shared_ptr<UserCommand>& command)
 {
     const MailMessage& msg = std::get<MailMessage>(command->data);
-
-    if (state.pending_delete.find(command->id) != state.pending_delete.end())
-    {
-        state.deleted.insert(command->id);
-        state.pending_delete.erase(command->id);
-        return;
-    }
 
     InboxMessage new_mail;
     strcpy(new_mail.msg.to, msg.to);
@@ -501,9 +504,7 @@ void send_mail_to_client()
         strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.origin).c_str());
         strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.index).c_str());
         send_ack(msg->session_id, temp);
-        
-        //send_ack(msg->session_id, "there was a problem reading this mail");
-    }
+            }
 }
 
 void send_component_to_client()
@@ -658,9 +659,19 @@ void update_knowledge()
     {
         for (int j = 0; j < N_MACHINES; j++)
         {
-            state.knowledge[i][j] = std::max(state.knowledge[i][j],
-                 msg->summary[i][j]);
+            if (msg->summary[i][j] > state.knowledge[i][j])
+            {
+                state.knowledge[i][j] = msg->summary[i][j];
+                ++changes_since_garbage_collection;
+            }
         }
+    }
+
+    ++changes_since_garbage_collection;
+    if (changes_since_garbage_collection >= MAX_CHANGES_BW_GARBAGE)
+    {
+        collect_garbage();
+        changes_since_garbage_collection = 0;
     }
 }
 
@@ -677,6 +688,57 @@ void mark_knowledge_as_received()
         servers_present[msg->sender] = true;
         ++n_received;
     }
+}
+
+void collect_garbage()
+{
+    for (int i = 0; i < N_MACHINES; ++i)
+    {
+        int min_index = INT_MAX;
+        for (int j = 0; j < N_MACHINES; ++j)
+        {
+            min_index = std::min(min_index, state.knowledge[j][i]);
+        }
+        state.safe_delivered[i] = min_index;
+        erase_queue_up_to(i, min_index);
+    }
+}
+
+void erase_queue_up_to(int origin, int index)
+{
+    auto& queue = command_queue[origin];
+    while (!queue.empty() && queue.front()->id.index <= index)
+    {
+        if (different_block(origin, queue.front()->id.index))
+        {
+            write_log_state();
+            for (int i = current_block[origin]; 
+                i < queue.front()->id.index / FILE_BLOCK_SIZE; i++)
+            {
+                delete_file_block(origin, i);
+            }
+            current_block[origin] = index / FILE_BLOCK_SIZE;
+        }
+        queue.pop_front();
+    }
+}
+
+bool different_block(int origin, int index)
+{
+    return current_block[origin] != index / FILE_BLOCK_SIZE;
+}
+
+void delete_file_block(int origin, int block)
+{
+    int index = block * FILE_BLOCK_SIZE;
+    delete_file_block_by_index(origin, index);
+}
+
+void delete_file_block_by_index(int origin, int index)
+{
+    const std::string filename = get_log_name(origin, index);
+    if (std::filesystem::exists(filename.c_str()));
+        remove(filename.c_str());
 }
 
 bool sender_in_group()
@@ -867,35 +929,55 @@ void load_state()
 
 void read_state_file()
 {
-    printf("here1");
-    fflush(0);
-    try {
-    ptree state_tree; 
-    read_json(state_file, state_tree);
+    require(
+        std::filesystem::exists(inbox_state_file),
+        "No inbox state file detected",
+        read_inbox_state
+    );
+    require(
+        std::filesystem::exists(log_state_file),
+        "No log state file detected",
+        read_log_state
+    );
+    repopulate_local_data();
+}
+
+void read_inbox_state()
+{
+    ptree state_tree;
+    std::string filename = inbox_state_file;
+
+    read_json(inbox_state_file, state_tree);
     read_2d_ptree_array(state.knowledge, N_MACHINES, N_MACHINES, 
         state_tree.get_child("knowledge"));
-    read_1d_ptree_array(state.safe_delivered, N_MACHINES, 
-        state_tree.get_child("safe_delivered"));
     read_1d_ptree_array(state.applied_to_state, N_MACHINES, 
         state_tree.get_child("applied_to_state"));
     rehydrate_set_from_ptree(state.pending_read, identifier_from_ptree, 
         state_tree.get_child("pending_read"));
     rehydrate_set_from_ptree(state.pending_delete, identifier_from_ptree, 
         state_tree.get_child("pending_delete"));
-    rehydrate_set_from_ptree(state.deleted, identifier_from_ptree, 
-        state_tree.get_child("deleted"));
     extract_inboxes_to_state(state_tree.get_child("inboxes"));
-    printf("here2");
-    fflush(0);
-    } catch (...) {
-        printf("skipped state reading \n");
-        return;
+}
+
+void read_log_state()
+{
+    ptree state_tree;
+    std::string filename = log_state_file;
+    read_1d_ptree_array(state.safe_delivered, N_MACHINES, 
+        state_tree.get_child("safe_delivered"));
+}
+
+void repopulate_local_data()
+{
+    for (int i = 0; i < N_MACHINES; ++i)
+    {
+        current_block[i] = (state.safe_delivered[i] + 1) / FILE_BLOCK_SIZE;
     }
 }
 
 void extract_inboxes_to_state(const ptree& pt)
 {
-    for (const auto& inbox : pt)
+    for (const auto& inbox : pt.get_child(""))
     {
         state.inboxes[inbox.first] = get_inbox_list_from_ptree(inbox.second);
     }
@@ -908,6 +990,7 @@ std::multiset<InboxMessage> get_inbox_list_from_ptree(const ptree& pt)
     {
         inbox.insert(inbox_message_from_ptree(child.second));
     }
+    return inbox;
 }
 
 void read_log_files()
@@ -924,7 +1007,7 @@ void read_log_files()
         index = state.applied_to_state[i] + 1;
         current_block = index / FILE_BLOCK_SIZE;
 
-        filename = get_log_name(server_id, i, index);
+        filename = get_log_name(i, index);
         if (!std::filesystem::exists(filename)) continue;
         infile.open(filename, std::ios::binary);
 
@@ -941,10 +1024,10 @@ void read_log_files()
             if (index / FILE_BLOCK_SIZE != current_block)
             {
                 infile.close();
-                if (std::filesystem::exists(get_log_name(server_id, i, index)))
+                if (std::filesystem::exists(get_log_name(i, index)))
                 {
                     current_block = index / FILE_BLOCK_SIZE;
-                    infile.open(get_log_name(server_id, i, index), std::ios::binary);
+                    infile.open(get_log_name(i, index), std::ios::binary);
                 }
                 else
                 {
@@ -963,7 +1046,7 @@ void write_command_to_log(const std::shared_ptr<UserCommand>& command)
 
     int block = index / FILE_BLOCK_SIZE;
 
-    outfile.open(get_log_name(server_id, origin, index), 
+    outfile.open(get_log_name(origin, index), 
         std::ios_base::app | std::ios::binary);
 
     outfile.write(reinterpret_cast<const char*>(&(*command)), sizeof(UserCommand));
@@ -972,11 +1055,15 @@ void write_command_to_log(const std::shared_ptr<UserCommand>& command)
 
 void write_state()
 {
+    write_inbox_state();
+    write_log_state();
+}
+
+void write_inbox_state()
+{
     ptree state_tree;
     state_tree.push_back(std::make_pair("knowledge", 
         generate_2d_ptree(state.knowledge, N_MACHINES, N_MACHINES)));
-    state_tree.push_back(std::make_pair("safe_delivered",
-        generate_1d_ptree(state.safe_delivered, N_MACHINES)));
     state_tree.push_back(std::make_pair("applied_to_state",
         generate_1d_ptree(state.applied_to_state, N_MACHINES)));
 
@@ -984,19 +1071,37 @@ void write_state()
         generate_iterable_ptree(state.pending_delete, ptree_from_identifier)));
     state_tree.push_back(std::make_pair("pending_read",
         generate_iterable_ptree(state.pending_read, ptree_from_identifier)));
-    state_tree.push_back(std::make_pair("deleted",
-        generate_iterable_ptree(state.deleted, ptree_from_identifier)));
 
-    state_tree.push_back(std::make_pair("inboxes", 
-        generate_iterable_ptree(state.inboxes, inbox_to_ptree)));
-    
-    write_json(state_file, state_tree);
+    state_tree.push_back(std::make_pair("inboxes", write_inboxes_to_ptree()));
+
+    write_json(inbox_state_file, state_tree);
 }
 
-std::string get_log_name(int server, int origin, int index)
+ptree write_inboxes_to_ptree()
+{
+    ptree inbox_tree;
+    for (const auto& inbox : state.inboxes)
+    {
+        inbox_tree.push_back(std::make_pair(inbox.first, 
+            ptree_from_inbox(inbox.second)));
+    }
+    return inbox_tree;
+}
+
+ptree ptree_from_inbox(const std::multiset<InboxMessage>& inbox)
+{
+    ptree inbox_tree;
+    for (const auto& message : inbox)
+    {
+        inbox_tree.push_back(std::make_pair("", ptree_from_inbox_message(message)));
+    }
+    return inbox_tree;
+}
+
+std::string get_log_name(int origin, int index)
 {
     return "log_" 
-    + std::to_string(server) 
+    + std::to_string(server_id) 
     + "_" + std::to_string(origin)
     + "_" + std::to_string(index / FILE_BLOCK_SIZE);
 }
@@ -1049,5 +1154,14 @@ InboxMessage inbox_message_from_ptree(const ptree& pt)
     strcpy(result.msg.message, pt.get<std::string>("message").c_str());
     result.msg.read = pt.get<bool>("read");
     return result;
+}
+
+void write_log_state()
+{
+    ptree state_tree;
+    state_tree.push_back(std::make_pair("safe_delivered",
+        generate_1d_ptree(state.safe_delivered, N_MACHINES)));
+    
+    write_json(log_state_file, state_tree);
 }
 

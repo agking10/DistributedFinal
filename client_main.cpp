@@ -292,7 +292,8 @@ void process_server_response(int16_t mess_type, const char * mess)
         int indx = 1;
         for (const auto & i: inbox) {
             printf(std::to_string(indx).c_str());
-            printf(". from: %s subject: %s read: %s\n", i.sender, i.subject, i.read ? "true" : "false");
+            printf(". from: %s subject: %s read: %s timestamp: %s\n", i.sender, i.subject, 
+                i.read ? "true" : "false", std::to_string(i.timestamp).c_str());
             indx++;
         }
     }

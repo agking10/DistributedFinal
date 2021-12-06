@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <limits.h>
 #include <ctime>
+#include <chrono>
 
 static mailbox mbox;
 static int seq_num;
@@ -217,18 +218,6 @@ void process_membership_message()
     int ret;
     // http://www.spread.org/docs/spread_docs_4/docs/user.c following this example still bugged
     if (!Is_reg_memb_mess(service_type)) return;
-    strcpy(backend_mess, mess);
-    unsigned int my_vsset_index;
-    int num_vs_sets = SP_get_vs_sets_info( mess, &vssets[0], MAX_VSSETS, &my_vsset_index);
-    for(int i = 0; i < num_vs_sets; i++ )
-    {
-        printf("%s VS set %d has %u members:\n",
-            (i  == my_vsset_index) ?
-            ("LOCAL") : ("OTHER"), i, vssets[i].num_members );
-        ret = SP_get_vs_set_members(mess, &vssets[i], members, MAX_MEMBERS);
-        for(int j = 0; j < vssets[i].num_members; j++ )
-            printf("\t%s\n", members[j] );
-    }
 
     ret = SP_get_memb_info(mess, service_type, &memb_info);
     if (ret < 0) 
@@ -238,7 +227,7 @@ void process_membership_message()
         exit( 1 );
     }
 
-    if (!synchronizing && is_server_memb_mess())
+    if (!synchronizing && is_server_memb_mess()) //do we chance to synch no matter what?
     {
         synchronize();
         //garbage_collection();
@@ -291,8 +280,9 @@ void process_new_email()
     mail_command->id.index = state.knowledge[server_index][server_index] + 1;
 
     mail_command->data = *reinterpret_cast<MailMessage*>(mess);
-    mail_command->timestamp = std::time(0);
-
+    auto temptime = std::chrono::system_clock::now();
+    mail_command->timestamp = std::chrono::system_clock::to_time_t(temptime);
+    printf("setting time to: %s\n", std::to_string(std::chrono::system_clock::to_time_t(temptime)).c_str());
     apply_new_command(mail_command);
 }
 
@@ -305,7 +295,8 @@ void process_read_command()
     read_command->id.index = state.knowledge[server_index][server_index] + 1;
 
     read_command->data = *reinterpret_cast<ReadMessage*>(mess);
-    read_command->timestamp = std::time(0);
+    auto temptime = std::chrono::system_clock::now();
+    read_command->timestamp = std::chrono::system_clock::to_time_t(temptime);
 
     apply_new_command(read_command);
 }
@@ -318,7 +309,8 @@ void process_delete_command()
     delete_command->id.index = state.knowledge[server_index][server_index] + 1;
 
     delete_command->data = *reinterpret_cast<DeleteMessage*>(mess);
-    delete_command->timestamp = std::time(0);
+    auto temptime = std::chrono::system_clock::now();
+    delete_command->timestamp = std::chrono::system_clock::to_time_t(temptime);
 
     apply_new_command(delete_command);
 }
@@ -457,6 +449,7 @@ void send_inbox_to_client()
         res.inbox[counter].read = i.msg.read;
         res.inbox[counter].id.index = i.id.index;
         res.inbox[counter].id.origin = i.id.origin;
+        res.inbox[counter].timestamp = i.msg.date_sent;
         if (counter >= INBOX_LIMIT) break;
         counter++;
     }
@@ -508,9 +501,11 @@ void send_component_to_client()
     ServerResponse res;
     ComponentMessage comp;
     comp.num_servers = n_synching;
+    int index = 0;
     for (int j = 0; j < 5; j++) {
         if (servers_present[j]) {
-            strcpy(comp.names[j], synch_members[j]);
+            strcpy(comp.names[index], synch_members[j]);
+            index++;
         }
     }
     res.data = comp;
@@ -688,7 +683,8 @@ void stash_command()
     std::shared_ptr<UserCommand> new_command = std::make_shared<UserCommand>();
     new_command->id.origin = server_index;
     new_command->id.index = state.knowledge[server_index][server_index] + 1;
-    new_command->timestamp = time(nullptr);
+    auto temptime = std::chrono::system_clock::now();
+    new_command->timestamp = std::chrono::system_clock::to_time_t(temptime);
     switch(mess_type) {
         case MessageType::MAIL:
             new_command->data = *reinterpret_cast<MailMessage*>(mess);

@@ -42,6 +42,8 @@ static std::multiset<InboxHeader> inbox;
 static bool blocking;
 static int blocking_id;
 static bool listed = false;
+static bool printInbox = false;
+
 
 int main(int argc, char * argv[])
 {
@@ -276,13 +278,24 @@ void process_membership_message(const char * sender,
 void process_server_response(int16_t mess_type, const char * mess)
 {
     if (!blocking) return;
-    printf("in process_server_response\n");
     if (mess_type == MessageType::ACK)
     {
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
         AckMessage ack = std::get<AckMessage>(resp->data);
         printf("%s\n", ack.body);
         blocking = false;
+
+        if (printInbox) {
+            int indx = 1;
+            for (const auto & i: inbox) {
+                printf(std::to_string(indx).c_str());
+
+                printf(". from: %s subject: %s read: %s timestamp: %s\n", i.sender, i.subject, 
+                    i.read ? "true" : "false", std::to_string(i.timestamp).c_str());
+                indx++;
+            }
+            printInbox = false;
+        }
     }
     else if (mess_type == MessageType::INBOX)
     {
@@ -290,14 +303,8 @@ void process_server_response(int16_t mess_type, const char * mess)
         for (int i = 0; i < resp->mail_count; i++) {
             inbox.insert(resp->inbox[i]);
         }
-        int indx = 1;
-        for (const auto & i: inbox) {
-            printf(std::to_string(indx).c_str());
-
-            printf(". from: %s subject: %s read: %s timestamp: %s\n", i.sender, i.subject, 
-                i.read ? "true" : "false", std::to_string(i.timestamp).c_str());
-            indx++;
-        }
+        printInbox = true;
+        
     }
     else if (mess_type == MessageType::RESPONSE) {
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
@@ -360,7 +367,7 @@ void connect_to_server(int server)
     if (ret < 0) SP_error(ret);
     ret = SP_join(mbox, client_inbox.c_str());
     if (ret < 0) SP_error(ret);
-
+    listed = false;
     //TODO add timeout
 
     SP_multicast(mbox, AGREED_MESS, 
@@ -467,12 +474,7 @@ void delete_email(int index) {
     msg.session_id = session_id;
     strcpy(msg.username, username.c_str());
     msg.id = find_id_using_index(index - 1);
-    
-    char temp[100];
-    strcpy(temp, "");
-    strcat(temp, std::to_string(msg.id.index).c_str());
-    strcat(temp, std::to_string(msg.id.origin).c_str());
-    printf("id: %s", temp);
+
 
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 
@@ -500,11 +502,6 @@ void read_email(int index) {
     msg.session_id = session_id;
     strcpy(msg.username, username.c_str());
     msg.id = find_id_using_index(index - 1);
-    char temp[100];
-    strcpy(temp, "");
-    strcat(temp, std::to_string(msg.id.index).c_str());
-    strcat(temp, std::to_string(msg.id.origin).c_str());
-    printf("id: %s", temp);
     
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 
@@ -524,7 +521,6 @@ void read_email(int index) {
 void get_component() {
     GetComponentMessage msg;
     msg.session_id = session_id;
-    printf("here1\n");
     SP_multicast(mbox, AGREED_MESS,
         connected_server_inbox.c_str(),
         MessageType::SHOW_COMPONENT,

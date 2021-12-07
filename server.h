@@ -13,10 +13,10 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
-#define FILE_BLOCK_SIZE 2
+#define FILE_BLOCK_SIZE 100
 #define MAX_VSSETS 100
-#define MAX_UPDATES_BW_SERIALIZE 0
-#define MAX_CHANGES_BW_GARBAGE 3
+#define MAX_UPDATES_BW_SERIALIZE 5
+#define MAX_CHANGES_BW_GARBAGE 5
 
 using boost::property_tree::ptree;
 

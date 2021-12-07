@@ -289,7 +289,6 @@ void process_new_email()
     mail_command->data = *reinterpret_cast<MailMessage*>(mess);
     auto temptime = std::chrono::system_clock::now();
     mail_command->timestamp = std::chrono::system_clock::to_time_t(temptime);
-    printf("setting time to: %s\n", std::to_string(std::chrono::system_clock::to_time_t(temptime)).c_str());
     apply_new_command(mail_command);
 }
 
@@ -396,8 +395,7 @@ void apply_mail_message(const std::shared_ptr<UserCommand>& command)
     state.inboxes[std::string(new_mail.msg.to)].insert(new_mail);
     
     char temp[100];
-    strcpy(temp, "done1 ");
-    strcat(temp, std::to_string(state.inboxes[std::string(new_mail.msg.to)].size()).c_str());
+    strcpy(temp, "mail sent");
     send_ack(msg.session_id, temp);
 }
 
@@ -417,7 +415,7 @@ void apply_read_message(const std::shared_ptr<UserCommand>& command)
     if (!exist) {
         state.pending_read.insert(msg.id);
     }
-    send_ack(msg.session_id, "done\n");
+    send_ack(msg.session_id, "read email\n");
 }
 
 void apply_delete_message(const std::shared_ptr<UserCommand>& command)
@@ -431,21 +429,14 @@ void apply_delete_message(const std::shared_ptr<UserCommand>& command)
     
     if (!exist) {
         state.pending_delete.insert(msg.id);
-        printf("addidng to pendnig delete\n");
-        fflush(0);
+        printf("adding to pending delete\n");
         char temp[100];
-        strcpy(temp, "could not find to delete: ");
-        strcat(temp, std::to_string(msg.id.origin).c_str());
-        strcat(temp, std::to_string(msg.id.index).c_str());
-        strcat(temp, "first was: ");
-        strcat(temp, std::to_string((*(state.inboxes[msg.username].begin())).id.origin).c_str());
-        strcat(temp, std::to_string((*(state.inboxes[msg.username].begin())).id.index).c_str());
+        strcpy(temp, "could not find to delete");
         send_ack(msg.session_id, temp);
     } else {
         state.inboxes[msg.username].erase(*it);
         char temp[100];
-        strcpy(temp, "success_delete ");
-        strcat(temp, std::to_string(state.inboxes[std::string(msg.username)].size()).c_str());
+        strcpy(temp, "successfully deleted");
         send_ack(msg.session_id, temp);
     }
 }
@@ -473,7 +464,13 @@ void send_inbox_to_client()
         res.inbox[counter].id.index = i.id.index;
         res.inbox[counter].id.origin = i.id.origin;
         res.inbox[counter].timestamp = i.msg.date_sent;
-        if (counter >= INBOX_LIMIT) break;
+        if (counter >= INBOX_LIMIT) {
+            res.mail_count = counter;
+            SP_multicast(mbox, AGREED_MESS, client_name.c_str(),
+            MessageType::INBOX, sizeof(res), 
+            reinterpret_cast<const char *>(&res));
+            counter = -1;
+        }
         counter++;
     }
     res.mail_count = counter;
@@ -482,8 +479,7 @@ void send_inbox_to_client()
     reinterpret_cast<const char *>(&res));
 
     char temp[100];
-    strcpy(temp, "done ");
-    strcat(temp, std::to_string(state.inboxes[uname].size()).c_str());
+    strcpy(temp, "retreived inbox");
     send_ack(msg->session_id, temp);
 }
 
@@ -511,7 +507,7 @@ void send_mail_to_client()
         strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.origin).c_str());
         strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.index).c_str());
         send_ack(msg->session_id, temp);
-            }
+    }
 }
 
 void send_component_to_client()
@@ -537,7 +533,6 @@ void send_component_to_client()
     strcpy(temp, "total num of servers: ");
     strcat(temp, std::to_string(comp.num_servers).c_str());
     send_ack(msg->session_id, temp);
-    printf("hereeee \n");
 }
 
 void process_connection_request()
@@ -585,8 +580,6 @@ void copy_group_members()
     for (int i = 0; i < n_connected; i++)
     {
         strcpy(synch_members[i], target_groups[i]);
-        printf("copying: ");
-        printf("%s\n", target_groups[i]);
     }
 }
 

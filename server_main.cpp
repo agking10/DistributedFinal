@@ -501,7 +501,8 @@ void send_mail_to_client()
             exist = true;
         }
     }
-    if (!exist) {
+    if (!exist) 
+    {
         char temp[100];
         strcpy(temp, "couldnt find ");
         strcat(temp, std::to_string((*(state.inboxes[uname].begin())).id.origin).c_str());

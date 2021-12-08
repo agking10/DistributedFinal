@@ -9,6 +9,7 @@ CLIENT_OBJS = client_main.o
 SERVER_OBJS = server_main.o
 
 all: client server
+	sh install_dependencies.sh
 
 client: $(CLIENT_OBJS)
 	$(CXX) -o client $(CLIENT_OBJS) -I include -ldl $(SP_LIBRARY)

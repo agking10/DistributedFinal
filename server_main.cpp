@@ -224,7 +224,6 @@ void send_ack(uint32_t session_id, const char * msg)
 void process_membership_message()
 {
     int ret;
-    // http://www.spread.org/docs/spread_docs_4/docs/user.c following this example still bugged
     if (!Is_reg_memb_mess(service_type)) return;
 
     ret = SP_get_memb_info(mess, service_type, &memb_info);
@@ -450,7 +449,6 @@ void broadcast_command(const std::shared_ptr<UserCommand>& command)
 
 void send_inbox_to_client()
 {
-    //TODO consolidate all emails before sending (slack message)
     GetInboxMessage *msg = reinterpret_cast<GetInboxMessage*>(mess);
     std::string uname = msg->username;
     std::string client_name = client_inbox_from_id(msg->session_id);
@@ -485,7 +483,6 @@ void send_inbox_to_client()
 
 void send_mail_to_client()
 {
-    //TODO consolidate all emails before sending (slack message)
     ReadMessage *msg = reinterpret_cast<ReadMessage*>(mess);
     std::string uname = msg->username;
     std::string client_name = client_inbox_from_id(msg->session_id);
@@ -594,7 +591,6 @@ void copy_group_members()
 */
 bool wait_for_everyone()
 {
-    //TODO:
     clear_synch_arrays();
 
     n_received = 1;
@@ -680,7 +676,6 @@ void update_knowledge()
 
 void mark_knowledge_as_received()
 {
-    //TODO: make sure group_id is correct
     KnowledgeMessage * msg = reinterpret_cast<KnowledgeMessage*>(mess);
 
     // Need to check that this member is currently in our partition
@@ -787,7 +782,6 @@ void send_my_messages()
 */
 void count_my_synch_servers()
 {
-    //TODO: MAKE SURE COLUMN AND ROW ORDER ARE CORRECT
     for (int i = 0; i < N_MACHINES; i++)
     {
         need_to_send[i] = false;

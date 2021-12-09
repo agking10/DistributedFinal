@@ -477,7 +477,7 @@ void get_inbox()
     inbox.clear();
 
     blocking = true;
-    timeout.sec = 2;
+    timeout.sec = RESPONSE_TIMEOUT;
     timeout.usec = 0;
     E_queue(handle_timeout, 0, nullptr, timeout);
     listed = true;
@@ -498,7 +498,7 @@ void delete_email(int index) {
     );
 
     blocking = true;
-    timeout.sec = 2;
+    timeout.sec = RESPONSE_TIMEOUT;
     timeout.usec = 0;
     E_queue(handle_timeout, 0, nullptr, timeout);
     listed = true;
@@ -523,7 +523,7 @@ void read_email(int index) {
     );
 
     blocking = true;
-    timeout.sec = 2;
+    timeout.sec = RESPONSE_TIMEOUT;
     timeout.usec = 0;
     E_queue(handle_timeout, 0, nullptr, timeout);
 }
@@ -539,7 +539,7 @@ void get_component() {
     );
 
     blocking = true;
-    timeout.sec = 2;
+    timeout.sec = RESPONSE_TIMEOUT;
     timeout.usec = 0;
     E_queue(handle_timeout, 0, nullptr, timeout);
 }

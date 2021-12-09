@@ -8,6 +8,8 @@
 #include <iostream>
 #include <random>
 
+#define RESPONSE_TIMEOUT 2
+
 void start();
 
 static void handle_keyboard_in(int, int, void*);

@@ -36,13 +36,12 @@ static int16_t mess_type;
 static membership_info  memb_info;
 static int endian_mismatch;
 
-// Keep track of requests that have not been filled yet
-static std::unordered_map<int, std::list<ServerResponse>> requests;
 static std::multiset<InboxHeader> inbox;
 static bool blocking;
 static int blocking_id;
 static bool listed = false;
 static bool printInbox = false;
+static sp_time timeout = { 2, 0 };
 
 
 int main(int argc, char * argv[])
@@ -89,6 +88,7 @@ void start()
 
     printf("User connected to %s with private group %s\n", 
         spread_name, private_group);
+    fflush(stdout);
 }
 
 void handle_keyboard_in(int, int, void*)
@@ -107,6 +107,7 @@ void handle_keyboard_in(int, int, void*)
             if (ret < 1)
             {
                 printf("Invalid username\n");
+                fflush(stdout);
                 break;
             }
             log_in(args);
@@ -116,6 +117,7 @@ void handle_keyboard_in(int, int, void*)
             if (ret < 1)
             {
                 printf("Invalid username\n");
+                fflush(stdout);
                 break;
             }
             try
@@ -130,6 +132,7 @@ void handle_keyboard_in(int, int, void*)
             catch(const std::invalid_argument& e)
             {
                 printf("Invalid server name, must be 1-5\n");
+                fflush(stdout);
             }
             break;
         case 'm':
@@ -152,6 +155,7 @@ void handle_keyboard_in(int, int, void*)
             if (ret < 1)
             {
                 printf("Invalid mail selection\n");
+                fflush(stdout);
                 break;
             }
             try
@@ -166,6 +170,7 @@ void handle_keyboard_in(int, int, void*)
             catch(const std::invalid_argument& e)
             {
                 printf("Invalid mail selection\n");
+                fflush(stdout);
             }
             break;
         case 'r':
@@ -173,6 +178,7 @@ void handle_keyboard_in(int, int, void*)
             if (ret < 1)
             {
                 printf("Invalid mail selection\n");
+                fflush(stdout);
                 break;
             }
             try
@@ -187,6 +193,7 @@ void handle_keyboard_in(int, int, void*)
             catch(const std::invalid_argument& e)
             {
                 printf("Invalid mail selection\n");
+                fflush(stdout);
             }
             break;
         case 'v':
@@ -280,12 +287,11 @@ void process_server_response(int16_t mess_type, const char * mess)
     if (!blocking) return;
     if (mess_type == MessageType::ACK)
     {
+        E_dequeue(handle_timeout, 0, nullptr);
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
         AckMessage ack = std::get<AckMessage>(resp->data);
-        printf("%s\n", ack.body);
-        blocking = false;
-
         if (printInbox) {
+            printf("\n");
             int indx = 1;
             for (const auto & i: inbox) {
                 printf(std::to_string(indx).c_str());
@@ -296,6 +302,10 @@ void process_server_response(int16_t mess_type, const char * mess)
             }
             printInbox = false;
         }
+        blocking = false;
+        printf("%s\n", ack.body);
+        printf("User> ");
+        fflush(stdout);
     }
     else if (mess_type == MessageType::INBOX)
     {
@@ -304,12 +314,13 @@ void process_server_response(int16_t mess_type, const char * mess)
             inbox.insert(resp->inbox[i]);
         }
         printInbox = true;
-        
+        listed = true;
     }
     else if (mess_type == MessageType::RESPONSE) {
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
         InboxMessage msg = std::get<InboxMessage>(resp->data);
-        printf("From: %s\n Subject: %s\n%s", msg.msg.from, msg.msg.subject, msg.msg.message);
+        printf("\nFrom: %s\n Subject: %s\n%s\n", msg.msg.from, msg.msg.subject, msg.msg.message);
+        fflush(stdout);
     } 
     else if (mess_type == MessageType::COMPONENT) {
         const ServerResponse * resp = reinterpret_cast<const ServerResponse*>(mess);
@@ -318,6 +329,7 @@ void process_server_response(int16_t mess_type, const char * mess)
         for (int j = 0; j < msg.num_servers; j++) {
             printf("%s\n", msg.names[j]);
         }
+        fflush(stdout);
     }
 }
 
@@ -392,9 +404,6 @@ void leave_current_session()
     ret = SP_leave(mbox, client_inbox.c_str());
     if (ret < 0) SP_error(ret);
 
-    // clear request queue
-    requests.clear();
-
     // Generate new session id
     session_id = rand();
 }
@@ -443,6 +452,14 @@ void send_email()
     );
 }
 
+void handle_timeout(int, void*)
+{
+    disconnect();
+    printf("Server couldn't be reached. Disconnected.\n");
+    printf("User> ");
+    fflush(stdout);
+}
+
 void get_inbox()
 {
     GetInboxMessage msg;
@@ -460,11 +477,9 @@ void get_inbox()
     inbox.clear();
 
     blocking = true;
-    while (blocking && connected)
-    {
-        handle_spread_message(0, 0, nullptr);
-    }
-    blocking = false;
+    timeout.sec = 2;
+    timeout.usec = 0;
+    E_queue(handle_timeout, 0, nullptr, timeout);
     listed = true;
 }
 
@@ -475,7 +490,6 @@ void delete_email(int index) {
     strcpy(msg.username, username.c_str());
     msg.id = find_id_using_index(index - 1);
 
-
     SP_multicast(mbox, AGREED_MESS, 
         connected_server_inbox.c_str(), 
         MessageType::DELETE,
@@ -484,11 +498,9 @@ void delete_email(int index) {
     );
 
     blocking = true;
-    while (blocking && connected)
-    {
-        handle_spread_message(0, 0, nullptr);
-    }
-    blocking = false;
+    timeout.sec = 2;
+    timeout.usec = 0;
+    E_queue(handle_timeout, 0, nullptr, timeout);
     listed = true;
 }
 
@@ -511,11 +523,9 @@ void read_email(int index) {
     );
 
     blocking = true;
-    while (blocking && connected)
-    {
-        handle_spread_message(0, 0, nullptr);
-    }
-    blocking = false;
+    timeout.sec = 2;
+    timeout.usec = 0;
+    E_queue(handle_timeout, 0, nullptr, timeout);
 }
 
 void get_component() {
@@ -529,11 +539,9 @@ void get_component() {
     );
 
     blocking = true;
-    while (blocking && connected)
-    {
-        handle_spread_message(0, 0, nullptr);
-    }
-    blocking = false;
+    timeout.sec = 2;
+    timeout.usec = 0;
+    E_queue(handle_timeout, 0, nullptr, timeout);
 }
 
 MessageIdentifier find_id_using_index(int index) {

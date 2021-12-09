@@ -414,7 +414,7 @@ void apply_read_message(const std::shared_ptr<UserCommand>& command)
     if (!exist) {
         state.pending_read.insert(msg.id);
     }
-    send_ack(msg.session_id, "read email\n");
+    send_ack(msg.session_id, "read email");
 }
 
 void apply_delete_message(const std::shared_ptr<UserCommand>& command)
